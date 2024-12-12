@@ -1,6 +1,6 @@
 <div align="center">
 	<h1>Analytics Service Wrapper</h1>
-     <p>A promise-based Analytics Service wrapper for Roblox.</p>
+  <p>A promise-based Analytics Service wrapper for Roblox.</p>
 </div>
 
 
@@ -42,7 +42,7 @@ This wrapper includes all methods provided by the default Analytics Service, wit
 - **`LogEconomyEvent(player, flowType, currencyType, amount, endingBalance, transactionType, itemSKU?, customFields?)`**
   - Logs an economic event, such as purchases or earnings.
 - **`AnalyticsWrapper:ForValues(callback, playerList)`**
-  - Iterates through a list of players, executing a callback function for each. The callback must return a promise. Promise rejection here will not throw a rejection the overall operation.
+  - Iterates through a list of players, executing a callback function for each. The callback must return a promise. Promise rejection here will not throw a rejection to the overall operation.
 ---
 
 ### Example Usage:
