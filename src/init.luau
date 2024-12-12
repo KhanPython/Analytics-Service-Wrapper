@@ -119,7 +119,7 @@ end
 
 function module:ForValues(promiseCallback: any, playerList: { Player })
 	return Promise.new(function(resolve, reject)
-		assert(type(promiseCallback) == "function", "Invalid `promiseCallback` provided.")
+		assert(typeof(promiseCallback) == "function", "Invalid `promiseCallback` provided.")
 		assert(playerList and #playerList > 0, "`list` cannot be an empty table.")
 
 		for _, player in pairs(playerList) do
@@ -158,52 +158,11 @@ function module:LogCustomEvent(player: Player, eventName: string, value: number?
 				player and typeof(player) == "Instance" and player:IsDescendantOf(Players),
 				"Invalid parameter: `player` must be provided."
 			)
-
 			assert(type(eventName) == "string", "Invalid parameter: `eventName` must be a string.")
+			assert(value == nil or typeof(value) == "number", "Invalid parameter: `value` must be a number.")
 			assert(validateCustomFields(customFields), "Invalid `customFields`.")
 
 			AnalyticsService:LogCustomEvent(player, eventName, value or 1, customFields)
-		end, resolve, reject)
-	end)
-end
-
-function module:LogOnboardingFunnelStep(
-	player: Player,
-	stepNumber: number,
-	stepName: string,
-	customFields: CustomFields?
-)
-	return Promise.new(function(resolve, reject)
-		self:_AddToQueue(player, "OnboardingFunnelStep", function()
-			assert(type(stepNumber) == "number", "Invalid parameter: `stepNumber` must be a number.")
-			assert(type(stepName) == "string", "Invalid parameter: `stepName` must be a string.")
-			assert(validateCustomFields(customFields), "Invalid `customFields`.")
-
-			AnalyticsService:LogOnboardingFunnelStepEvent(player, stepNumber, stepName, customFields)
-		end, resolve, reject)
-	end)
-end
-
-function module:LogFunnelStep(
-	player: Player,
-	funnelName: string,
-	stepNumber: number,
-	stepName: string,
-	customFields: CustomFields?
-)
-	return Promise.new(function(resolve, reject)
-		self:_AddToQueue(player, "FunnelStep", function()
-			assert(type(funnelName) == "string", "Invalid parameter: `funnelName` must be a string.")
-			assert(type(stepNumber) == "number", "Invalid parameter: `stepNumber` must be a number.")
-			assert(type(stepName) == "string", "Invalid parameter: `stepName` must be a string.")
-			assert(validateCustomFields(customFields), "Invalid `customFields`.")
-
-			local funnelSessionId = self:_GetFunnelSession(player)
-			if not funnelSessionId then
-				funnelSessionId = self:_StartFunnelSession(player)
-			end
-
-			AnalyticsService:LogFunnelStepEvent(player, funnelName, funnelSessionId, stepNumber, stepName, customFields)
 		end, resolve, reject)
 	end)
 end
@@ -224,17 +183,17 @@ function module:LogEconomyEvent(
 				flowType == nil or typeof(flowType) == "EnumItem",
 				"Invalid parameter: `flowType` must be an Enum.AnalyticsEconomyFlowType or nil for default dynamic determination."
 			)
-			assert(type(currencyType) == "string", "Invalid parameter: `currencyType` must be a string.")
+			assert(typeof(currencyType) == "string", "Invalid parameter: `currencyType` must be a string.")
 			assert(
-				type(amount) == "number" and amount >= 0,
+				typeof(amount) == "number" and amount >= 0,
 				"Invalid parameter: `amount` must be a non-negative number."
 			)
 			assert(
-				type(endingBalance) == "number" and endingBalance >= 0,
+				typeof(endingBalance) == "number" and endingBalance >= 0,
 				"Invalid parameter: `endingBalance` must be a non-negative number."
 			)
 			assert(
-				type(transactionType) == "table" and transactionType.Name ~= nil
+				(typeof(transactionType) == "table" and transactionType.Name ~= nil)
 					or typeof(transactionType) == "EnumItem",
 				"Invalid parameter: `transactionType` must be an Enum.AnalyticsEconomyTransactionType or a table with a `Name` field."
 			)
@@ -256,6 +215,60 @@ function module:LogEconomyEvent(
 				itemSKU,
 				customFields
 			)
+		end, resolve, reject)
+	end)
+end
+
+function module:LogFunnelStep(
+	player: Player,
+	funnelName: string,
+	stepNumber: number,
+	stepName: string?,
+	customFields: CustomFields?
+)
+	return Promise.new(function(resolve, reject)
+		self:_AddToQueue(player, "FunnelStep", function()
+			assert(typeof(funnelName) == "string", "Invalid parameter: `funnelName` must be a string.")
+			assert(
+				typeof(stepNumber) == "number" and (stepNumber >= 1 and stepNumber <= 100),
+				"Invalid parameter: `stepNumber` must be a positive number between 1-100."
+			)
+			assert(stepName == nil or typeof(stepName) == "string", "Invalid parameter: `stepName` must be a string.")
+			assert(validateCustomFields(customFields), "Invalid `customFields`.")
+
+			local funnelSessionId = self:_GetFunnelSession(player)
+			if not funnelSessionId then
+				funnelSessionId = self:_StartFunnelSession(player)
+			end
+
+			AnalyticsService:LogFunnelStepEvent(
+				player,
+				funnelName,
+				funnelSessionId,
+				stepNumber,
+				stepName or "",
+				customFields
+			)
+		end, resolve, reject)
+	end)
+end
+
+function module:LogOnboardingFunnelStep(
+	player: Player,
+	stepNumber: number,
+	stepName: string?,
+	customFields: CustomFields?
+)
+	return Promise.new(function(resolve, reject)
+		self:_AddToQueue(player, "OnboardingFunnelStep", function()
+			assert(
+				typeof(stepNumber) == "number" and (stepNumber >= 1 and stepNumber <= 100),
+				"Invalid parameter: `stepNumber` must be a positive number between 1-100."
+			)
+			assert(stepName == nil or typeof(stepName) == "string", "Invalid parameter: `stepName` must be a string.")
+			assert(validateCustomFields(customFields), "Invalid `customFields`.")
+
+			AnalyticsService:LogOnboardingFunnelStepEvent(player, stepNumber, stepName or "", customFields)
 		end, resolve, reject)
 	end)
 end
