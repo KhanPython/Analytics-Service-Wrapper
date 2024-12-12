@@ -1,6 +1,6 @@
 [package]
-name = "khanpython/AnalyticsServiceWrapper"
-description = "A promise-based Roblox Analytics Service wrapper."
+name = "khanpython/analytics-service-wrapper"
+description = "A Promise-based Analytics Service Wrapper for Roblox."
 version = "1.0.0"
 license = "MIT"
 authors = ["khanpython (https://github.com/KhanPython)"]
