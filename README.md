@@ -8,7 +8,7 @@
 
 - **Queuing System:** Ensures all analytics events are processed without throttling.
 - **Promise-Based API:** Handles unexpected errors during execution, logging problems while maintaining overall service functionality.
-- **Safe-Guarding**: Protects against invalid or malformed inputs, such as empty lists or incorrect data types, with strict validation mechanisms.
+- **Type Safe-Guarding**: Protects against invalid or malformed inputs, such as empty lists or incorrect data types, with strict validation mechanisms.
 
 ---
 
