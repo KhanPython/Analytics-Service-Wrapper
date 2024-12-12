@@ -33,7 +33,7 @@
 
 ### Methods:
 
-This wrapper includes all methods provided by the default Analytics Service, with the exception of ProgressionEvents. For detailed information on the available parameters, visit the official [Analytics Service documentation](https://create.roblox.com/docs/reference/engine/classes/AnalyticsService#summary).
+This wrapper includes all methods provided by the default Analytics Service, with the exception of ProgressionEvents. For detailed information on the available parameters, visit the official [Analytics Service Documentation](https://create.roblox.com/docs/reference/engine/classes/AnalyticsService#summary).
 
 - **`LogCustomEvent(player, eventName, value?, customFields?)`**
   - Logs a custom event with optional value and custom fields.
@@ -73,4 +73,5 @@ AnalyticsWrapper:ForValues(function(player: Player)
 ---
 ### Resources:
 
-[Promises and Why You Should Use Them](https://devforum.roblox.com/t/promises-and-why-you-should-use-them/350825)
+- [Promises and Why You Should Use Them](https://devforum.roblox.com/t/promises-and-why-you-should-use-them/350825)
+- [Official Analytics Service Documentation](https://create.roblox.com/docs/reference/engine/classes/AnalyticsService#summary)
