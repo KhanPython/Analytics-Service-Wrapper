@@ -6,7 +6,7 @@
 
 ### Features:
 
-- **Queuing System:** Ensures all analytics events are processed without throttling.
+- **Queuing System:** Ensures all analytics events are processed without throttling (FIFO-basis).
 - **Promise-Based API:** Handles unexpected errors during execution, logging problems while maintaining overall service functionality.
 - **Type Safe-Guarding**: Protects against invalid or malformed inputs, such as empty lists or incorrect data types, with strict validation mechanisms.
 
@@ -71,6 +71,25 @@ AnalyticsWrapper:ForValues(function(player: Player)
         warn("Unable to log funnel step: " .. tostring(errMessage))
     end)
 ```
+
+---
+### FAQ:
+1. **How are actions processed from the queue?**
+   
+   A background loop runs continuously ensuring that For each player and event type:
+   - The system checks if the cooldown for the event type has expired.
+   - If the cooldown has expired, the first action in the queue is removed using table.remove.
+   - The action is executed, and any success or failure is handled through the `resolve` or `reject` callbacks.
+---
+2. **How does rate-limiting work in the queue?**
+   
+    It is static, meaning each event type has a cooldown (e.g., CustomEvent = 0.5 seconds). The LastExecutionTime table tracks when the last action for a specific event type was executed for a player. If the cooldown hasn’t expired, the action waits in the queue.
+---
+3. **Does the queue maintain order for step-based events?**
+    
+    Yes, the queue ensures correct step order for `FunnelStep` and `OnboardingFunnelStep` events:
+    - It checks the `stepNumber` against the last logged step.
+    - If the step is out of order or already processed, the action is rejected, and the queue skips it.
 
 ---
 ### Resources:
