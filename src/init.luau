@@ -350,7 +350,7 @@ task.spawn(function()
 					continue
 				end
 
-				-- Check for step precedence
+				-- Check for step precedence [! This is redundant (and will be removed in the next version) unless the user manages to bypass the initial check for highest step]
 				do
 					local stepKey = queueKey == "FunnelStep" and "HighestFunnelStep"
 						or queueKey == "OnboardingFunnelStep" and "HighestOnboardingFunnelStep"
