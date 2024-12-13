@@ -39,8 +39,8 @@ local AnalyticsCooldowns: { [AnalyticsMethodNames]: number } = {
 
 local LastExecutionTime: { [Player]: { [AnalyticsMethodNames]: number, HighestFunnelStep: number?, HighestOnboardingFunnelStep: number? } } =
 	{}
-local LastFunnelStep: { [Player]: { string: number } } = {}
-local LastOnboardingFunnelStep: { [Player]: number } = {}
+local HighestFunnelStep: { [Player]: { string: number } } = {}
+local HighestOnboardingFunnelStep: { [Player]: number } = {}
 
 local PlayerFunnelSessions: FunnelSessions = {}
 
@@ -267,9 +267,9 @@ function module:LogFunnelStep(
 		end
 
 		if
-			LastFunnelStep[player]
-			and LastFunnelStep[player][funnelSessionId]
-			and stepNumber <= LastFunnelStep[player][funnelSessionId]
+			HighestFunnelStep[player]
+			and HighestFunnelStep[player][funnelSessionId]
+			and stepNumber <= HighestFunnelStep[player][funnelSessionId]
 		then
 			reject(
 				`Step {stepNumber} is invalid because a step greater than or equal to this has already been logged for funnelSessionId {funnelSessionId}.`
@@ -277,7 +277,7 @@ function module:LogFunnelStep(
 			return
 		end
 
-		LastFunnelStep[player] = {
+		HighestFunnelStep[player] = {
 			[funnelSessionId] = stepNumber,
 		}
 
@@ -308,12 +308,12 @@ function module:LogOnboardingFunnelStep(
 		assert(stepName == nil or typeof(stepName) == "string", "Invalid parameter: `stepName` must be a string.")
 		assert(validateCustomFields(customFields), "Invalid `customFields`.")
 
-		if LastOnboardingFunnelStep[player] and stepNumber <= LastOnboardingFunnelStep[player] then
+		if HighestOnboardingFunnelStep[player] and stepNumber <= HighestOnboardingFunnelStep[player] then
 			reject(`Step {stepNumber} is invalid because a step greater than or equal to this has already been logged.`)
 			return
 		end
 
-		LastOnboardingFunnelStep[player] = stepNumber
+		HighestOnboardingFunnelStep[player] = stepNumber
 
 		self:_AddToQueue(player, "OnboardingFunnelStep", function()
 			AnalyticsService:LogOnboardingFunnelStepEvent(player, stepNumber, stepName or "", customFields)
@@ -367,18 +367,39 @@ task.spawn(function()
 								if stepNumber > maxStepNumber then
 									maxStepNumber = stepNumber
 								elseif stepNumber < currentStepNumber then
-									table.remove(actions, i)
+									local droppedActionData = table.remove(actions, i)
+									if not droppedActionData then
+										continue
+									end
+
+									if droppedActionData.reject and typeof(droppedActionData.resolve) == "function" then
+										droppedActionData.reject(
+											`Step {currentStepNumber} is invalid because a step greater than or equal to this has already been logged.`
+										)
+									end
 								end
 							end
 						end
 
 						-- Skip processing if the current step is not the highest step in the queue
 						if currentStepNumber <= maxStepNumber then
+							if actionData.reject and typeof(actionData.resolve) == "function" then
+								actionData.reject(
+									`Step {currentStepNumber} is invalid because a step greater than or equal to this has already been logged.`
+								)
+							end
+
 							continue
 						end
 
 						-- Skip processing if lower or equal to historically highest step
 						if highestStepNumber and currentStepNumber and currentStepNumber <= highestStepNumber then
+							if actionData.reject and typeof(actionData.resolve) == "function" then
+								actionData.reject(
+									`Step {currentStepNumber} is invalid because a step greater than or equal to this has already been logged.`
+								)
+							end
+
 							continue
 						end
 
