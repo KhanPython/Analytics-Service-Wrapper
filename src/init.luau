@@ -377,7 +377,7 @@ task.spawn(function()
 							continue
 						end
 
-						-- Skip processing if lower or equal to historical step (even if not in queue)
+						-- Skip processing if lower or equal to historically highest step
 						if highestStepNumber and currentStepNumber and currentStepNumber <= highestStepNumber then
 							continue
 						end
