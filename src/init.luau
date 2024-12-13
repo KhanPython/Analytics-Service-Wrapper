@@ -181,7 +181,7 @@ end
 function module:LogFunnelStep(
 	player: Player,
 	funnelName: string,
-	funnelSessionId: string,
+	funnelSessionId: string?,
 	stepNumber: number,
 	stepName: string?,
 	customFields: Types.CustomFields?
