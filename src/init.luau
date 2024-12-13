@@ -1,51 +1,21 @@
 --!nonstrict
 
--- Services
 local AnalyticsService = game:GetService("AnalyticsService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 
--- Dependencies
 local Promise = require(script.Parent.promise)
+local Types = require(script.Types)
+local Queue = require(script.Queue)
 
--- Types
-type FunnelSessions = { [number]: string }
-type CustomFieldNames = "CustomField01" | "CustomField02" | "CustomField03"
-type CustomFields = { [CustomFieldNames]: string }
-type SteppedMethodNames = "FunnelStep" | "OnboardingFunnelStep"
-type AnalyticsMethodNames = "CustomEvent" | "EconomyEvent" | SteppedMethodNames
-
-type Actions = {
-	action: () -> (),
-	resolve: (() -> ())?,
-	reject: ((string) -> ())?,
-	stepNumber: number?,
-}
-type Queue = {
-	[Player]: {
-		[AnalyticsMethodNames]: { Actions },
-	},
-}
-
--- Queues and Analytics Cooldowns
-local Queue: Queue = {}
-
-local AnalyticsCooldowns: { [AnalyticsMethodNames]: number } = {
-	CustomEvent = 0.5, -- 2 events per second, per player
-	FunnelStep = 1, -- 1 event per second, per player
-	EconomyEvent = 1,
-	OnboardingFunnelStep = 1,
-}
-
-local LastExecutionTime: { [Player]: { [AnalyticsMethodNames]: number } } = {}
 local HighestFunnelStep: { [Player]: { string: number } } = {}
 local HighestOnboardingFunnelStep: { [Player]: number } = {}
 
-local PlayerFunnelSessions: FunnelSessions = {}
+local PlayerFunnelSessions: Types.FunnelSessions = {}
 
 local module = {}
 
-local function validateCustomFields(customFields: CustomFields?): boolean
+local function validateCustomFields(customFields: Types.CustomFields?): boolean
 	if not customFields then
 		return true
 	end
@@ -67,35 +37,6 @@ local function validateCustomFields(customFields: CustomFields?): boolean
 	end
 
 	return true
-end
-
-function module:_AddToQueue(
-	player: Player,
-	queueKey: AnalyticsMethodNames,
-	action: () -> (),
-	resolve: (() -> ())?,
-	reject: ((string) -> ())?
-)
-	assert(
-		player and typeof(player) == "Instance" and player:IsDescendantOf(Players),
-		"Invalid parameter: `player` must be provided."
-	)
-
-	if not Queue[player] then
-		Queue[player] = {}
-	end
-
-	local actions: Actions = {
-		action = action,
-		resolve = resolve,
-		reject = reject,
-	}
-
-	if not Queue[player][queueKey] then
-		Queue[player][queueKey] = {}
-	end
-
-	table.insert(Queue[player][queueKey], actions)
 end
 
 -- Initialize a new funnel session for a player
@@ -172,7 +113,7 @@ function module:ForValues(promiseCallback: any, playerList: { Player })
 	end)
 end
 
-function module:LogCustomEvent(player: Player, eventName: string, value: number?, customFields: CustomFields?)
+function module:LogCustomEvent(player: Player, eventName: string, value: number?, customFields: Types.CustomFields?)
 	return Promise.new(function(resolve, reject)
 		assert(
 			player and typeof(player) == "Instance" and player:IsDescendantOf(Players),
@@ -182,7 +123,7 @@ function module:LogCustomEvent(player: Player, eventName: string, value: number?
 		assert(value == nil or typeof(value) == "number", "Invalid parameter: `value` must be a number.")
 		assert(validateCustomFields(customFields), "Invalid `customFields`.")
 
-		self:_AddToQueue(player, "CustomEvent", function()
+		Queue:AddToQueue(player, "CustomEvent", function()
 			AnalyticsService:LogCustomEvent(player, eventName, value or 1, customFields)
 		end, resolve, reject)
 	end)
@@ -196,7 +137,7 @@ function module:LogEconomyEvent(
 	endingBalance: number,
 	transactionType: Enum.AnalyticsEconomyTransactionType | { Name: string },
 	itemSKU: string?,
-	customFields: CustomFields?
+	customFields: Types.CustomFields?
 )
 	return Promise.new(function(resolve, reject)
 		assert(
@@ -222,7 +163,7 @@ function module:LogEconomyEvent(
 		amount = math.abs(amount)
 		endingBalance = math.max(endingBalance, 0)
 
-		self:_AddToQueue(player, "EconomyEvent", function()
+		Queue:AddToQueue(player, "EconomyEvent", function()
 			AnalyticsService:LogEconomyEvent(
 				player,
 				flowType,
@@ -243,7 +184,7 @@ function module:LogFunnelStep(
 	funnelSessionId: string,
 	stepNumber: number,
 	stepName: string?,
-	customFields: CustomFields?
+	customFields: Types.CustomFields?
 )
 	return Promise.new(function(resolve, reject)
 		assert(
@@ -276,7 +217,7 @@ function module:LogFunnelStep(
 			return
 		end
 
-		self:_AddToQueue(player, "FunnelStep", function()
+		Queue:AddToQueue(player, "FunnelStep", function()
 			AnalyticsService:LogFunnelStepEvent(
 				player,
 				funnelName,
@@ -288,7 +229,7 @@ function module:LogFunnelStep(
 			HighestFunnelStep[player] = {
 				[funnelSessionId] = stepNumber,
 			}
-		end, resolve, reject, stepNumber)
+		end, resolve, reject)
 	end)
 end
 
@@ -296,7 +237,7 @@ function module:LogOnboardingFunnelStep(
 	player: Player,
 	stepNumber: number,
 	stepName: string?,
-	customFields: CustomFields?
+	customFields: Types.CustomFields?
 )
 	return Promise.new(function(resolve, reject)
 		assert(
@@ -311,121 +252,11 @@ function module:LogOnboardingFunnelStep(
 			return
 		end
 
-		self:_AddToQueue(player, "OnboardingFunnelStep", function()
+		Queue:AddToQueue(player, "OnboardingFunnelStep", function()
 			AnalyticsService:LogOnboardingFunnelStepEvent(player, stepNumber, stepName or "", customFields)
 			HighestOnboardingFunnelStep[player] = stepNumber
-		end, resolve, reject, stepNumber)
+		end, resolve, reject)
 	end)
 end
-
--- Queue processor
-task.spawn(function()
-	game.Loaded:Wait() --? Experience needs to be loaded, otherwise will throw throttling error
-
-	while true do
-		local now = tick()
-
-		for player, playerQueues in pairs(Queue) do
-			for queueKey, actions in pairs(playerQueues) do
-				if #actions <= 0 then
-					continue
-				end
-
-				-- Rate-limiting
-				do
-					local lastExecution = (LastExecutionTime[player] and LastExecutionTime[player][queueKey]) or 0
-					local cooldown = AnalyticsCooldowns[queueKey] or 0
-
-					if now - lastExecution < cooldown then
-						continue
-					end
-				end
-
-				-- Remove first from queue
-				local actionData = table.remove(actions, 1)
-				if not actionData then
-					continue
-				end
-
-				-- Check for step precedence
-				do
-					local stepKey = queueKey == "FunnelStep" and "HighestFunnelStep"
-						or queueKey == "OnboardingFunnelStep" and "HighestOnboardingFunnelStep"
-
-					local highestStepMap = queueKey == "FunnelStep" and HighestFunnelStep
-						or queueKey == "OnboardingFunnelStep" and HighestOnboardingFunnelStep
-
-					if not stepKey or not highestStepMap then
-						continue
-					end
-
-					local currentStepNumber = actionData.stepNumber
-					local highestStepNumber = highestStepMap[player] or 0
-					local maxStepNumber = highestStepNumber
-
-					-- Scan actions to determine maxStepNumber and remove lower steps
-					for i = #actions, 1, -1 do
-						local stepNumber = actions[i].stepNumber
-						if stepNumber then
-							if stepNumber > maxStepNumber then
-								maxStepNumber = stepNumber
-							elseif stepNumber < currentStepNumber then
-								local droppedActionData = table.remove(actions, i)
-								if not droppedActionData then
-									continue
-								end
-
-								if droppedActionData.reject and typeof(droppedActionData.resolve) == "function" then
-									droppedActionData.reject(
-										`Step {currentStepNumber} is invalid because a step greater than or equal to this has already been logged.`
-									)
-								end
-							end
-						end
-					end
-
-					-- Skip processing if the current step is not the highest step in the queue
-					if currentStepNumber <= maxStepNumber then
-						if actionData.reject and typeof(actionData.resolve) == "function" then
-							actionData.reject(
-								`Step {currentStepNumber} is invalid because a step greater than or equal to this has already been logged.`
-							)
-						end
-
-						continue
-					end
-
-					-- Update the highest step number
-					highestStepMap[player] = currentStepNumber
-				end
-
-				-- Execute actions
-				do
-					local success, result = pcall(function()
-						actionData.action()
-					end)
-					if success then
-						if actionData.resolve and typeof(actionData.resolve) == "function" then
-							actionData.resolve()
-						end
-					else
-						if actionData.reject and typeof(actionData.resolve) == "function" then
-							actionData.reject(result)
-						end
-					end
-				end
-
-				-- Update the last execution time
-				if not LastExecutionTime[player] then
-					LastExecutionTime[player] = {}
-				end
-
-				LastExecutionTime[player][queueKey] = now
-			end
-		end
-
-		task.wait(0.1)
-	end
-end)
 
 return module

@@ -17,7 +17,7 @@
 1. Ensure you have the [Wally package manager](https://github.com/UpliftGames/wally) installed on your system.
 2. Add the following line to your `wally.toml` file under the `[dependencies]` section:
    ```toml
-   analytics-service-wrapper = "khanpython/analytics-service-wrapper@1.5.0"
+   analytics-service-wrapper = "khanpython/analytics-service-wrapper@2.0.0"
    ```
 3. Run the Wally install command to download and integrate the package:
     ```bash
@@ -73,7 +73,7 @@ AnalyticsWrapper:ForValues(function(player: Player)
 ```
 
 ---
-### FAQ:
+### FAQ (WIP):
 1. **How are actions processed from the queue?**
    
    A background loop runs continuously ensuring that For each player and event type:
@@ -83,11 +83,11 @@ AnalyticsWrapper:ForValues(function(player: Player)
 ---
 2. **How does rate-limiting work in the queue?**
    
-    It is static, meaning each event type has a cooldown (e.g., CustomEvent = 0.5 seconds). The `LastExecutionTime` table tracks when the last action for a specific event type was executed for a player. If the cooldown hasn’t expired, the action waits in the queue.
+    It attempts to adhere to the limits imposed by Roblox using `120 + (20 * CCU)`. The global CCU is retrieved using [`MessagingService`](https://create.roblox.com/docs/reference/cloud/messaging-service/v1) API. 
 
 3. **What happens if a funnel step is logged out of sequence?**
 
-    The wrapper ensures that funnel steps are logged in order of precedence. If a step number is less than or equal to the highest previously logged step for a specific funnelSessionId (if relevant), the wrapper will reject the action with an error message indicating the issue. This safeguard prevents duplicate or incorrect step logging. Read more on [Repeated steps](https://create.roblox.com/docs/production/analytics/funnel-events#repeated-steps) and [Skipped steps](https://create.roblox.com/docs/production/analytics/funnel-events#skipping-steps).
+    The wrapper ensures that funnel steps are logged in order of precedence. If a step number is less than or equal to the highest previously logged step for a specific `funnelSessionId` (if relevant), the wrapper will reject the action with an error message indicating the issue. This safeguard prevents duplicate or incorrect step logging. Read more on [Repeated steps](https://create.roblox.com/docs/production/analytics/funnel-events#repeated-steps) and [Skipped steps](https://create.roblox.com/docs/production/analytics/funnel-events#skipping-steps).
 ---
 ### Resources:
 
