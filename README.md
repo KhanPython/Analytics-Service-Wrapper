@@ -37,10 +37,12 @@ This wrapper includes all methods provided by the default Analytics Service, wit
 
 - **`LogCustomEvent(player, eventName, value?, customFields?)`**
   - Logs a custom event with optional value and custom fields.
-- **`LogOnboardingFunnelStep(player, stepNumber, stepName, customFields?)`**
-  - Logs a step in the onboarding funnel.
 - **`LogEconomyEvent(player, flowType, currencyType, amount, endingBalance, transactionType, itemSKU?, customFields?)`**
   - Logs an economic event, such as purchases or earnings.
+- **`LogFunnelStep(player, funnelName, funnelSessionId?, stepNumber, stepName?, customFields?)`**
+  - Logs a step in the funnel. If no funnelSessionId is provided, then a GUID will be generated.
+- **`LogOnboardingFunnelStep(player, stepNumber, stepName?, customFields?)`**
+  - Logs a step in the onboarding funnel.
 - **`AnalyticsWrapper:ForValues(callback, playerList)`**
   - Iterates through a list of players, executing a callback function for each. The callback must return a promise. Promise rejection here will not throw a rejection to the overall operation.
 ---

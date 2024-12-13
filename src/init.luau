@@ -362,11 +362,11 @@ task.spawn(function()
 				end)
 
 				if success then
-					if actionData.resolve then
+					if actionData.resolve and typeof(actionData.resolve) == "function" then
 						actionData.resolve()
 					end
 				else
-					if actionData.reject then
+					if actionData.reject and typeof(actionData.resolve) == "function" then
 						actionData.reject(result)
 					end
 				end
