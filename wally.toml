@@ -1,7 +1,7 @@
 [package]
 name = "khanpython/analytics-service-wrapper"
 description = "A Promise-based Analytics Service Wrapper for Roblox."
-version = "1.3.0"
+version = "1.4.0"
 license = "MIT"
 authors = ["khanpython (https://github.com/KhanPython)"]
 registry = "https://github.com/upliftgames/wally-index"
