@@ -35,6 +35,8 @@ function module:AddToQueue(
 		"Invalid parameter: `player` must be provided."
 	)
 
+	game.Loaded:Wait() -- Wait until the experience is loaded, before processing the queue. Otherwise a throttling error will be issued.
+
 	local capacity = self:GetRequestCapacity()
 	-- Check if the action can be executed immediately, otherwise add to queue
 	if CurrentRequestCount < capacity then
@@ -70,8 +72,6 @@ end
 
 -- Queue processor
 task.spawn(function()
-	game.Loaded:Wait() -- Wait until the experience is loaded, otherwise a throttling error will be issued
-
 	while true do
 		module:TryResetReqeusts()
 

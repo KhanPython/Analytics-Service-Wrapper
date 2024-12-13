@@ -1,4 +1,3 @@
-export type FunnelSessions = { [number]: string }
 export type CustomFieldNames = "CustomField01" | "CustomField02" | "CustomField03"
 export type CustomFields = { [CustomFieldNames]: string }
 export type SteppedMethodNames = "FunnelStep" | "OnboardingFunnelStep"

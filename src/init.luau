@@ -10,8 +10,7 @@ local Queue = require(script.Queue)
 
 local HighestFunnelStep: { [Player]: { string: number } } = {}
 local HighestOnboardingFunnelStep: { [Player]: number } = {}
-
-local PlayerFunnelSessions: Types.FunnelSessions = {}
+local PlayerFunnelSessionIds: { [Player]: string } = {}
 
 local module = {}
 
@@ -37,46 +36,6 @@ local function validateCustomFields(customFields: Types.CustomFields?): boolean
 	end
 
 	return true
-end
-
--- Initialize a new funnel session for a player
-function module:_StartFunnelSession(player: Player): string?
-	assert(
-		player and typeof(player) == "Instance" and player:IsDescendantOf(Players),
-		"Invalid parameter: `player` must be provided."
-	)
-
-	if PlayerFunnelSessions[player.UserId] then
-		PlayerFunnelSessions[player.UserId] = nil
-	end
-
-	local funnelSessionId = HttpService:GenerateGUID(false)
-	local _connection: RBXScriptConnection? = nil
-
-	local _connection = player.AncestryChanged:Connect(function()
-		if player:IsDescendantOf(game) then
-			return
-		end
-
-		PlayerFunnelSessions[player.UserId] = nil
-
-		if _connection ~= nil then
-			_connection:Disconnect()
-		end
-	end)
-
-	PlayerFunnelSessions[player.UserId] = funnelSessionId
-
-	return funnelSessionId
-end
-
-function module:_GetFunnelSession(player: Player): string?
-	assert(
-		player and typeof(player) == "Instance" and player:IsDescendantOf(Players),
-		"Invalid parameter: `player` must be provided."
-	)
-
-	return PlayerFunnelSessions[player.UserId]
 end
 
 function module:ForValues(promiseCallback: any, playerList: { Player })
@@ -200,9 +159,11 @@ function module:LogFunnelStep(
 		assert(validateCustomFields(customFields), "Invalid `customFields`.")
 
 		if not funnelSessionId then
-			local guidFunnelSessionId = self:_GetFunnelSession(player)
-			if not guidFunnelSessionId then
-				funnelSessionId = self:_StartFunnelSession(player)
+			funnelSessionId = PlayerFunnelSessionIds[player]
+
+			if not funnelSessionId then
+				funnelSessionId = HttpService:GenerateGUID(false)
+				PlayerFunnelSessionIds[player] = funnelSessionId
 			end
 		end
 
