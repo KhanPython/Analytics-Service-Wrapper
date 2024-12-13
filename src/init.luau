@@ -276,10 +276,6 @@ function module:LogFunnelStep(
 			return
 		end
 
-		HighestFunnelStep[player] = {
-			[funnelSessionId] = stepNumber,
-		}
-
 		self:_AddToQueue(player, "FunnelStep", function()
 			AnalyticsService:LogFunnelStepEvent(
 				player,
@@ -289,6 +285,9 @@ function module:LogFunnelStep(
 				stepName or "",
 				customFields
 			)
+			HighestFunnelStep[player] = {
+				[funnelSessionId] = stepNumber,
+			}
 		end, resolve, reject, stepNumber)
 	end)
 end
@@ -312,10 +311,9 @@ function module:LogOnboardingFunnelStep(
 			return
 		end
 
-		HighestOnboardingFunnelStep[player] = stepNumber
-
 		self:_AddToQueue(player, "OnboardingFunnelStep", function()
 			AnalyticsService:LogOnboardingFunnelStepEvent(player, stepNumber, stepName or "", customFields)
+			HighestOnboardingFunnelStep[player] = stepNumber
 		end, resolve, reject, stepNumber)
 	end)
 end
@@ -347,6 +345,58 @@ task.spawn(function()
 				local actionData = table.remove(actions, 1)
 				if not actionData then
 					continue
+				end
+
+				-- Check for step precedence
+				do
+					local stepKey = queueKey == "FunnelStep" and "HighestFunnelStep"
+						or queueKey == "OnboardingFunnelStep" and "HighestOnboardingFunnelStep"
+
+					local highestStepMap = queueKey == "FunnelStep" and HighestFunnelStep
+						or queueKey == "OnboardingFunnelStep" and HighestOnboardingFunnelStep
+
+					if not stepKey or not highestStepMap then
+						continue
+					end
+
+					local currentStepNumber = actionData.stepNumber
+					local highestStepNumber = highestStepMap[player] or 0
+					local maxStepNumber = highestStepNumber
+
+					-- Scan actions to determine maxStepNumber and remove lower steps
+					for i = #actions, 1, -1 do
+						local stepNumber = actions[i].stepNumber
+						if stepNumber then
+							if stepNumber > maxStepNumber then
+								maxStepNumber = stepNumber
+							elseif stepNumber < currentStepNumber then
+								local droppedActionData = table.remove(actions, i)
+								if not droppedActionData then
+									continue
+								end
+
+								if droppedActionData.reject and typeof(droppedActionData.resolve) == "function" then
+									droppedActionData.reject(
+										`Step {currentStepNumber} is invalid because a step greater than or equal to this has already been logged.`
+									)
+								end
+							end
+						end
+					end
+
+					-- Skip processing if the current step is not the highest step in the queue
+					if currentStepNumber <= maxStepNumber then
+						if actionData.reject and typeof(actionData.resolve) == "function" then
+							actionData.reject(
+								`Step {currentStepNumber} is invalid because a step greater than or equal to this has already been logged.`
+							)
+						end
+
+						continue
+					end
+
+					-- Update the highest step number
+					highestStepMap[player] = currentStepNumber
 				end
 
 				-- Execute actions

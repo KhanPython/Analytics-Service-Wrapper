@@ -83,14 +83,11 @@ AnalyticsWrapper:ForValues(function(player: Player)
 ---
 2. **How does rate-limiting work in the queue?**
    
-    It is static, meaning each event type has a cooldown (e.g., CustomEvent = 0.5 seconds). The LastExecutionTime table tracks when the last action for a specific event type was executed for a player. If the cooldown hasn’t expired, the action waits in the queue.
----
-3. **Does the queue maintain order and precedence for step-based events?**
-    
-    Yes, the queue ensures correct step order for `FunnelStep` and `OnboardingFunnelStep` events:
-    - It checks the `stepNumber` against the highest logged step.
-    - If the step is out of order or has already been processed in the past, the queue skips it in favor of that highest step.
+    It is static, meaning each event type has a cooldown (e.g., CustomEvent = 0.5 seconds). The `LastExecutionTime` table tracks when the last action for a specific event type was executed for a player. If the cooldown hasn’t expired, the action waits in the queue.
 
+3. **What happens if a funnel step is logged out of sequence?**
+
+    The wrapper ensures that funnel steps are logged in order of precedence. If a step number is less than or equal to the highest previously logged step for a specific funnelSessionId (if relevant), the wrapper will reject the action with an error message indicating the issue. This safeguard prevents duplicate or incorrect step logging. Read more on [Repeated steps](https://create.roblox.com/docs/production/analytics/funnel-events#repeated-steps) and [Skipped steps](https://create.roblox.com/docs/production/analytics/funnel-events#skipping-steps).
 ---
 ### Resources:
 
