@@ -12,7 +12,9 @@ local Promise = require(script.Parent.promise)
 type FunnelSessions = { [number]: string }
 type CustomFieldNames = "CustomField01" | "CustomField02" | "CustomField03"
 type CustomFields = { [CustomFieldNames]: string }
-type AnalyticsMethodNames = "CustomEvent" | "FunnelStep" | "EconomyEvent" | "OnboardingFunnelStep"
+type SteppedMethodNames = "FunnelStep" | "OnboardingFunnelStep"
+type AnalyticsMethodNames = "CustomEvent" | "EconomyEvent" | SteppedMethodNames
+
 type Actions = {
 	action: () -> (),
 	resolve: (() -> ())?,
@@ -35,7 +37,8 @@ local AnalyticsCooldowns: { [AnalyticsMethodNames]: number } = {
 	OnboardingFunnelStep = 1,
 }
 
-local LastExecutionTime: { [Player]: { [AnalyticsMethodNames]: number, LastFunnelStepNumber: number? } } = {}
+local LastExecutionTime: { [Player]: { [AnalyticsMethodNames]: number, HighestFunnelStep: number?, HighestOnboardingFunnelStep: number? } } =
+	{}
 local LastFunnelStep: { [Player]: { string: number } } = {}
 local LastOnboardingFunnelStep: { [Player]: number } = {}
 
@@ -69,7 +72,7 @@ end
 
 function module:_AddToQueue(
 	player: Player,
-	queueName: AnalyticsMethodNames,
+	queueKey: AnalyticsMethodNames,
 	action: () -> (),
 	resolve: (() -> ())?,
 	reject: ((string) -> ())?
@@ -88,11 +91,12 @@ function module:_AddToQueue(
 		resolve = resolve,
 		reject = reject,
 	}
-	if not Queue[player][queueName] then
-		Queue[player][queueName] = { [1] = actions }
-	else
-		table.insert(Queue[player][queueName], actions)
+
+	if not Queue[player][queueKey] then
+		Queue[player][queueKey] = {}
 	end
+
+	table.insert(Queue[player][queueKey], actions)
 end
 
 -- Initialize a new funnel session for a player
@@ -322,52 +326,83 @@ task.spawn(function()
 	game.Loaded:Wait() --? Experience needs to be loaded, otherwise will throw throttling error
 
 	while true do
+		local now = tick()
+
 		for player, playerQueues in pairs(Queue) do
-			for queueName, actions in pairs(playerQueues) do
+			for queueKey, actions in pairs(playerQueues) do
 				if #actions <= 0 then
 					continue
 				end
 
-				local now = tick()
-				local lastExecution = (LastExecutionTime[player] and LastExecutionTime[player][queueName]) or 0
-				local cooldown = AnalyticsCooldowns[queueName] or 0
+				-- Rate-limiting
+				do
+					local lastExecution = (LastExecutionTime[player] and LastExecutionTime[player][queueKey]) or 0
+					local cooldown = AnalyticsCooldowns[queueKey] or 0
 
-				if now - lastExecution < cooldown then
-					continue
+					if now - lastExecution < cooldown then
+						continue
+					end
 				end
 
+				-- Remove first from queue
 				local actionData = table.remove(actions, 1)
 				if not actionData then
 					continue
 				end
 
 				-- Check for step precedence
-				if queueName == "FunnelStep" or queueName == "OnboardingFunnelStep" then
-					local currentStepNumber = actionData.stepNumber and tonumber(actionData.stepNumber)
-					local lastStepNumber = LastExecutionTime[player] and LastExecutionTime[player].LastFunnelStepNumber
+				do
+					local stepKey = queueKey == "FunnelStep" and "HighestFunnelStep"
+						or queueKey == "OnboardingFunnelStep" and "HighestOnboardingFunnelStep"
 
-					if lastStepNumber and currentStepNumber and currentStepNumber <= lastStepNumber then
-						continue -- Skip processing lower or equal funnel steps
-					end
+					if stepKey then
+						local currentStepNumber = actionData.stepNumber
+						local highestStepNumber = LastExecutionTime[player] and LastExecutionTime[player][stepKey]
+						local maxStepNumber = highestStepNumber or 0
 
-					-- Update the last processed step number
-					if not LastExecutionTime[player] then
-						LastExecutionTime[player] = {}
+						-- Scan actions to determine maxStepNumber and remove lower steps
+						for i = #actions, 1, -1 do
+							local stepNumber = actions[i].stepNumber
+							if stepNumber then
+								if stepNumber > maxStepNumber then
+									maxStepNumber = stepNumber
+								elseif stepNumber < currentStepNumber then
+									table.remove(actions, i)
+								end
+							end
+						end
+
+						-- Skip processing if the current step is not the highest step in the queue
+						if currentStepNumber <= maxStepNumber then
+							continue
+						end
+
+						-- Skip processing if lower or equal to historical step (even if not in queue)
+						if highestStepNumber and currentStepNumber and currentStepNumber <= highestStepNumber then
+							continue
+						end
+
+						-- Update the highest step number
+						if not LastExecutionTime[player] then
+							LastExecutionTime[player] = {}
+						end
+						LastExecutionTime[player][stepKey] = currentStepNumber
 					end
-					LastExecutionTime[player].LastFunnelStepNumber = currentStepNumber
 				end
 
-				local success, result = pcall(function()
-					actionData.action()
-				end)
-
-				if success then
-					if actionData.resolve and typeof(actionData.resolve) == "function" then
-						actionData.resolve()
-					end
-				else
-					if actionData.reject and typeof(actionData.resolve) == "function" then
-						actionData.reject(result)
+				-- Execute actions
+				do
+					local success, result = pcall(function()
+						actionData.action()
+					end)
+					if success then
+						if actionData.resolve and typeof(actionData.resolve) == "function" then
+							actionData.resolve()
+						end
+					else
+						if actionData.reject and typeof(actionData.resolve) == "function" then
+							actionData.reject(result)
+						end
 					end
 				end
 
@@ -375,7 +410,8 @@ task.spawn(function()
 				if not LastExecutionTime[player] then
 					LastExecutionTime[player] = {}
 				end
-				LastExecutionTime[player][queueName] = now
+
+				LastExecutionTime[player][queueKey] = now
 			end
 		end
 
