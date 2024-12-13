@@ -12,14 +12,14 @@ end
 local function broadcastPlayerCount()
 	local playerCount = #Players:GetPlayers()
 
-	pcall(function()
+	local success, errMessage = pcall(function()
 		MessagingService:PublishAsync("ASW_PlayerCount", playerCount)
 	end)
-end
 
-task.spawn(function()
-	broadcastPlayerCount()
-end)
+	if not success then
+		warn(`Unable to broadcast player count due to a MessagingService error: \n {errMessage}`)
+	end
+end
 
 Players.PlayerAdded:Connect(function(player: Player)
 	local connection
@@ -38,9 +38,13 @@ Players.PlayerAdded:Connect(function(player: Player)
 	broadcastPlayerCount()
 end)
 
-MessagingService:SubscribeAsync("ASW_PlayerCount", function(message)
-	local receivedCount = tonumber(message.Data) or 0
-	module.GlobalPlayerCount = module.GlobalPlayerCount + receivedCount
+task.spawn(function()
+	MessagingService:SubscribeAsync("ASW_PlayerCount", function(message)
+		local receivedCount = tonumber(message.Data) or 0
+		module.GlobalPlayerCount = module.GlobalPlayerCount + receivedCount
+	end)
+
+	broadcastPlayerCount()
 end)
 
 return module

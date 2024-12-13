@@ -37,8 +37,8 @@ function module:AddToQueue(
 
 	local capacity = self:GetRequestCapacity()
 	-- Check if the action can be executed immediately, otherwise add to queue
-	if self.CurrentRequestCount < capacity then
-		self.CurrentRequestCount += 1
+	if CurrentRequestCount < capacity then
+		CurrentRequestCount += 1
 		local success, result = pcall(action)
 		if success then
 			if resolve then
