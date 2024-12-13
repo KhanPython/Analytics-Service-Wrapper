@@ -17,7 +17,7 @@
 1. Ensure you have the [Wally package manager](https://github.com/UpliftGames/wally) installed on your system.
 2. Add the following line to your `wally.toml` file under the `[dependencies]` section:
    ```toml
-   analytics-service-wrapper = "khanpython/analytics-service-wrapper@1.2.0"
+   analytics-service-wrapper = "khanpython/analytics-service-wrapper@1.3.0"
    ```
 3. Run the Wally install command to download and integrate the package:
     ```bash
@@ -89,7 +89,7 @@ AnalyticsWrapper:ForValues(function(player: Player)
     
     Yes, the queue ensures correct step order for `FunnelStep` and `OnboardingFunnelStep` events:
     - It checks the `stepNumber` against the last logged step.
-    - If the step is out of order or already processed, the action is rejected, and the queue skips it.
+    - If the step is out of order or already processed, the queue skips it in favor of the step that is historically higher.
 
 ---
 ### Resources:
