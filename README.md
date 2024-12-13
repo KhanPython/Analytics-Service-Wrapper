@@ -85,11 +85,11 @@ AnalyticsWrapper:ForValues(function(player: Player)
    
     It is static, meaning each event type has a cooldown (e.g., CustomEvent = 0.5 seconds). The LastExecutionTime table tracks when the last action for a specific event type was executed for a player. If the cooldown hasn’t expired, the action waits in the queue.
 ---
-3. **Does the queue maintain order for step-based events?**
+3. **Does the queue maintain order and precedence for step-based events?**
     
     Yes, the queue ensures correct step order for `FunnelStep` and `OnboardingFunnelStep` events:
-    - It checks the `stepNumber` against the last logged step.
-    - If the step is out of order or already processed, the queue skips it in favor of the step that is historically higher.
+    - It checks the `stepNumber` against the highest logged step.
+    - If the step is out of order or has already been processed in the past, the queue skips it in favor of that highest step.
 
 ---
 ### Resources:
