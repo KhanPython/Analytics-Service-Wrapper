@@ -17,7 +17,7 @@
 1. Ensure you have the [Wally package manager](https://github.com/UpliftGames/wally) installed on your system.
 2. Add the following line to your `wally.toml` file under the `[dependencies]` section:
    ```toml
-   analyticsservicewrapper = "khanpython/analytics-service-wrapper@1.2.0"
+   analytics-service-wrapper = "khanpython/analytics-service-wrapper@1.2.0"
    ```
 3. Run the Wally install command to download and integrate the package:
     ```bash
