@@ -37,8 +37,7 @@ local AnalyticsCooldowns: { [AnalyticsMethodNames]: number } = {
 	OnboardingFunnelStep = 1,
 }
 
-local LastExecutionTime: { [Player]: { [AnalyticsMethodNames]: number, HighestFunnelStep: number?, HighestOnboardingFunnelStep: number? } } =
-	{}
+local LastExecutionTime: { [Player]: { [AnalyticsMethodNames]: number } } = {}
 local HighestFunnelStep: { [Player]: { string: number } } = {}
 local HighestOnboardingFunnelStep: { [Player]: number } = {}
 
@@ -348,67 +347,6 @@ task.spawn(function()
 				local actionData = table.remove(actions, 1)
 				if not actionData then
 					continue
-				end
-
-				-- Check for step precedence
-				do
-					local stepKey = queueKey == "FunnelStep" and "HighestFunnelStep"
-						or queueKey == "OnboardingFunnelStep" and "HighestOnboardingFunnelStep"
-
-					if stepKey then
-						local currentStepNumber = actionData.stepNumber
-						local highestStepNumber = LastExecutionTime[player] and LastExecutionTime[player][stepKey]
-						local maxStepNumber = highestStepNumber or 0
-
-						-- Scan actions to determine maxStepNumber and remove lower steps
-						for i = #actions, 1, -1 do
-							local stepNumber = actions[i].stepNumber
-							if stepNumber then
-								if stepNumber > maxStepNumber then
-									maxStepNumber = stepNumber
-								elseif stepNumber < currentStepNumber then
-									local droppedActionData = table.remove(actions, i)
-									if not droppedActionData then
-										continue
-									end
-
-									if droppedActionData.reject and typeof(droppedActionData.resolve) == "function" then
-										droppedActionData.reject(
-											`Step {currentStepNumber} is invalid because a step greater than or equal to this has already been logged.`
-										)
-									end
-								end
-							end
-						end
-
-						-- Skip processing if the current step is not the highest step in the queue
-						if currentStepNumber <= maxStepNumber then
-							if actionData.reject and typeof(actionData.resolve) == "function" then
-								actionData.reject(
-									`Step {currentStepNumber} is invalid because a step greater than or equal to this has already been logged.`
-								)
-							end
-
-							continue
-						end
-
-						-- Skip processing if lower or equal to historically highest step
-						if highestStepNumber and currentStepNumber and currentStepNumber <= highestStepNumber then
-							if actionData.reject and typeof(actionData.resolve) == "function" then
-								actionData.reject(
-									`Step {currentStepNumber} is invalid because a step greater than or equal to this has already been logged.`
-								)
-							end
-
-							continue
-						end
-
-						-- Update the highest step number
-						if not LastExecutionTime[player] then
-							LastExecutionTime[player] = {}
-						end
-						LastExecutionTime[player][stepKey] = currentStepNumber
-					end
 				end
 
 				-- Execute actions
