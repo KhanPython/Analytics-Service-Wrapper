@@ -9,14 +9,24 @@ local Players = game:GetService("Players")
 local Promise = require(script.Parent.promise)
 
 -- Types
-export type FunnelSessions = { [number]: string }
-export type CustomFieldNames = "CustomField01" | "CustomField02" | "CustomField03"
-export type CustomFields = { [CustomFieldNames]: string }
-export type AnalyticsMethodNames = "CustomEvent" | "FunnelStep" | "EconomyEvent" | "OnboardingFunnelStep"
+type FunnelSessions = { [number]: string }
+type CustomFieldNames = "CustomField01" | "CustomField02" | "CustomField03"
+type CustomFields = { [CustomFieldNames]: string }
+type AnalyticsMethodNames = "CustomEvent" | "FunnelStep" | "EconomyEvent" | "OnboardingFunnelStep"
+type Actions = {
+	action: () -> (),
+	resolve: (() -> ())?,
+	reject: ((string) -> ())?,
+	stepNumber: number?,
+}
+type Queue = {
+	[Player]: {
+		[AnalyticsMethodNames]: { Actions },
+	},
+}
 
 -- Queues and Analytics Cooldowns
-local Queue: { [Player]: { [AnalyticsMethodNames]: { { action: () -> (), resolve: (() -> ())?, reject: ((string) -> ())? } } } } =
-	{}
+local Queue: Queue = {}
 
 local AnalyticsCooldowns: { [AnalyticsMethodNames]: number } = {
 	CustomEvent = 0.5, -- 2 events per second, per player
@@ -25,7 +35,10 @@ local AnalyticsCooldowns: { [AnalyticsMethodNames]: number } = {
 	OnboardingFunnelStep = 1,
 }
 
-local LastExecutionTime: { [Player]: { [AnalyticsMethodNames]: number } } = {}
+local LastExecutionTime: { [Player]: { [AnalyticsMethodNames]: number, LastFunnelStepNumber: number? } } = {}
+local LastFunnelStep: { [Player]: { string: number } } = {}
+local LastOnboardingFunnelStep: { [Player]: number } = {}
+
 local PlayerFunnelSessions: FunnelSessions = {}
 
 local module = {}
@@ -70,15 +83,16 @@ function module:_AddToQueue(
 		Queue[player] = {}
 	end
 
-	if not Queue[player][queueName] then
-		Queue[player][queueName] = {}
-	end
-
-	table.insert(Queue[player][queueName], {
+	local actions: Actions = {
 		action = action,
 		resolve = resolve,
 		reject = reject,
-	})
+	}
+	if not Queue[player][queueName] then
+		Queue[player][queueName] = { [1] = actions }
+	else
+		table.insert(Queue[player][queueName], actions)
+	end
 end
 
 -- Initialize a new funnel session for a player
@@ -87,6 +101,10 @@ function module:_StartFunnelSession(player: Player): string?
 		player and typeof(player) == "Instance" and player:IsDescendantOf(Players),
 		"Invalid parameter: `player` must be provided."
 	)
+
+	if PlayerFunnelSessions[player.UserId] then
+		PlayerFunnelSessions[player.UserId] = nil
+	end
 
 	local funnelSessionId = HttpService:GenerateGUID(false)
 	local _connection: RBXScriptConnection? = nil
@@ -153,15 +171,15 @@ end
 
 function module:LogCustomEvent(player: Player, eventName: string, value: number?, customFields: CustomFields?)
 	return Promise.new(function(resolve, reject)
-		self:_AddToQueue(player, "CustomEvent", function()
-			assert(
-				player and typeof(player) == "Instance" and player:IsDescendantOf(Players),
-				"Invalid parameter: `player` must be provided."
-			)
-			assert(type(eventName) == "string", "Invalid parameter: `eventName` must be a string.")
-			assert(value == nil or typeof(value) == "number", "Invalid parameter: `value` must be a number.")
-			assert(validateCustomFields(customFields), "Invalid `customFields`.")
+		assert(
+			player and typeof(player) == "Instance" and player:IsDescendantOf(Players),
+			"Invalid parameter: `player` must be provided."
+		)
+		assert(type(eventName) == "string", "Invalid parameter: `eventName` must be a string.")
+		assert(value == nil or typeof(value) == "number", "Invalid parameter: `value` must be a number.")
+		assert(validateCustomFields(customFields), "Invalid `customFields`.")
 
+		self:_AddToQueue(player, "CustomEvent", function()
 			AnalyticsService:LogCustomEvent(player, eventName, value or 1, customFields)
 		end, resolve, reject)
 	end)
@@ -178,33 +196,30 @@ function module:LogEconomyEvent(
 	customFields: CustomFields?
 )
 	return Promise.new(function(resolve, reject)
+		assert(
+			flowType == nil or typeof(flowType) == "EnumItem",
+			"Invalid parameter: `flowType` must be an Enum.AnalyticsEconomyFlowType or nil for default dynamic determination."
+		)
+		assert(typeof(currencyType) == "string", "Invalid parameter: `currencyType` must be a string.")
+		assert(typeof(amount) == "number" and amount >= 0, "Invalid parameter: `amount` must be a non-negative number.")
+		assert(
+			typeof(endingBalance) == "number" and endingBalance >= 0,
+			"Invalid parameter: `endingBalance` must be a non-negative number."
+		)
+		assert(
+			(typeof(transactionType) == "table" and transactionType.Name ~= nil)
+				or typeof(transactionType) == "EnumItem",
+			"Invalid parameter: `transactionType` must be an Enum.AnalyticsEconomyTransactionType or a table with a `Name` field."
+		)
+		assert(validateCustomFields(customFields), "Invalid `customFields`.")
+
+		if not flowType then
+			flowType = amount < 0 and Enum.AnalyticsEconomyFlowType.Sink or Enum.AnalyticsEconomyFlowType.Source
+		end
+		amount = math.abs(amount)
+		endingBalance = math.max(endingBalance, 0)
+
 		self:_AddToQueue(player, "EconomyEvent", function()
-			assert(
-				flowType == nil or typeof(flowType) == "EnumItem",
-				"Invalid parameter: `flowType` must be an Enum.AnalyticsEconomyFlowType or nil for default dynamic determination."
-			)
-			assert(typeof(currencyType) == "string", "Invalid parameter: `currencyType` must be a string.")
-			assert(
-				typeof(amount) == "number" and amount >= 0,
-				"Invalid parameter: `amount` must be a non-negative number."
-			)
-			assert(
-				typeof(endingBalance) == "number" and endingBalance >= 0,
-				"Invalid parameter: `endingBalance` must be a non-negative number."
-			)
-			assert(
-				(typeof(transactionType) == "table" and transactionType.Name ~= nil)
-					or typeof(transactionType) == "EnumItem",
-				"Invalid parameter: `transactionType` must be an Enum.AnalyticsEconomyTransactionType or a table with a `Name` field."
-			)
-			assert(validateCustomFields(customFields), "Invalid `customFields`.")
-
-			if not flowType then
-				flowType = amount < 0 and Enum.AnalyticsEconomyFlowType.Sink or Enum.AnalyticsEconomyFlowType.Source
-			end
-			amount = math.abs(amount)
-			endingBalance = math.max(endingBalance, 0)
-
 			AnalyticsService:LogEconomyEvent(
 				player,
 				flowType,
@@ -222,25 +237,47 @@ end
 function module:LogFunnelStep(
 	player: Player,
 	funnelName: string,
+	funnelSessionId: string,
 	stepNumber: number,
 	stepName: string?,
 	customFields: CustomFields?
 )
 	return Promise.new(function(resolve, reject)
-		self:_AddToQueue(player, "FunnelStep", function()
-			assert(typeof(funnelName) == "string", "Invalid parameter: `funnelName` must be a string.")
-			assert(
-				typeof(stepNumber) == "number" and (stepNumber >= 1 and stepNumber <= 100),
-				"Invalid parameter: `stepNumber` must be a positive number between 1-100."
-			)
-			assert(stepName == nil or typeof(stepName) == "string", "Invalid parameter: `stepName` must be a string.")
-			assert(validateCustomFields(customFields), "Invalid `customFields`.")
+		assert(
+			funnelSessionId == nil or typeof(funnelSessionId) == "string",
+			"Invalid parameter: `funnelSessionId` must be a string."
+		)
+		assert(
+			typeof(stepNumber) == "number" and (stepNumber >= 1 and stepNumber <= 100),
+			"Invalid parameter: `stepNumber` must be a positive number between 1-100."
+		)
+		assert(typeof(funnelName) == "string", "Invalid parameter: `funnelName` must be a string.")
+		assert(stepName == nil or typeof(stepName) == "string", "Invalid parameter: `stepName` must be a string.")
+		assert(validateCustomFields(customFields), "Invalid `customFields`.")
 
-			local funnelSessionId = self:_GetFunnelSession(player)
-			if not funnelSessionId then
+		if not funnelSessionId then
+			local guidFunnelSessionId = self:_GetFunnelSession(player)
+			if not guidFunnelSessionId then
 				funnelSessionId = self:_StartFunnelSession(player)
 			end
+		end
 
+		if
+			LastFunnelStep[player]
+			and LastFunnelStep[player][funnelSessionId]
+			and stepNumber <= LastFunnelStep[player][funnelSessionId]
+		then
+			reject(
+				`Step {stepNumber} is invalid because a step greater than or equal to this has already been logged for funnelSessionId {funnelSessionId}.`
+			)
+			return
+		end
+
+		LastFunnelStep[player] = {
+			[funnelSessionId] = stepNumber,
+		}
+
+		self:_AddToQueue(player, "FunnelStep", function()
 			AnalyticsService:LogFunnelStepEvent(
 				player,
 				funnelName,
@@ -249,7 +286,7 @@ function module:LogFunnelStep(
 				stepName or "",
 				customFields
 			)
-		end, resolve, reject)
+		end, resolve, reject, stepNumber)
 	end)
 end
 
@@ -260,16 +297,23 @@ function module:LogOnboardingFunnelStep(
 	customFields: CustomFields?
 )
 	return Promise.new(function(resolve, reject)
-		self:_AddToQueue(player, "OnboardingFunnelStep", function()
-			assert(
-				typeof(stepNumber) == "number" and (stepNumber >= 1 and stepNumber <= 100),
-				"Invalid parameter: `stepNumber` must be a positive number between 1-100."
-			)
-			assert(stepName == nil or typeof(stepName) == "string", "Invalid parameter: `stepName` must be a string.")
-			assert(validateCustomFields(customFields), "Invalid `customFields`.")
+		assert(
+			typeof(stepNumber) == "number" and (stepNumber >= 1 and stepNumber <= 100),
+			"Invalid parameter: `stepNumber` must be a positive number between 1-100."
+		)
+		assert(stepName == nil or typeof(stepName) == "string", "Invalid parameter: `stepName` must be a string.")
+		assert(validateCustomFields(customFields), "Invalid `customFields`.")
 
+		if LastOnboardingFunnelStep[player] and stepNumber <= LastOnboardingFunnelStep[player] then
+			reject(`Step {stepNumber} is invalid because a step greater than or equal to this has already been logged.`)
+			return
+		end
+
+		LastOnboardingFunnelStep[player] = stepNumber
+
+		self:_AddToQueue(player, "OnboardingFunnelStep", function()
 			AnalyticsService:LogOnboardingFunnelStepEvent(player, stepNumber, stepName or "", customFields)
-		end, resolve, reject)
+		end, resolve, reject, stepNumber)
 	end)
 end
 
@@ -295,6 +339,22 @@ task.spawn(function()
 				local actionData = table.remove(actions, 1)
 				if not actionData then
 					continue
+				end
+
+				-- Check for step precedence
+				if queueName == "FunnelStep" or queueName == "OnboardingFunnelStep" then
+					local currentStepNumber = actionData.stepNumber and tonumber(actionData.stepNumber)
+					local lastStepNumber = LastExecutionTime[player] and LastExecutionTime[player].LastFunnelStepNumber
+
+					if lastStepNumber and currentStepNumber and currentStepNumber <= lastStepNumber then
+						continue -- Skip processing lower or equal funnel steps
+					end
+
+					-- Update the last processed step number
+					if not LastExecutionTime[player] then
+						LastExecutionTime[player] = {}
+					end
+					LastExecutionTime[player].LastFunnelStepNumber = currentStepNumber
 				end
 
 				local success, result = pcall(function()
