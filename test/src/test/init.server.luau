@@ -3,7 +3,7 @@ local Packages = script.Packages
 local AnalyticsServiceWrapper = require(Packages["analytics-service-wrapper"])
 
 Players.PlayerAdded:Connect(function(player)
-	warn("Started:")
+	warn("Started 2:")
 
 	task.delay(10, function()
 		for i = 1, 100 do

@@ -7,13 +7,5 @@
         "**/.DS_Store": true,
         "**/Thumbs.db": true
     },
-    "hide-files.files": [],
-    "[lua]": {
-        "editor.defaultFormatter": "JohnnyMorganz.stylua",
-        "editor.formatOnSave": true
-    },
-    "[luau]": {
-        "editor.defaultFormatter": "JohnnyMorganz.stylua",
-        "editor.formatOnSave": true
-    },
+    "hide-files.files": []
 }
