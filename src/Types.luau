@@ -4,15 +4,21 @@ export type SteppedMethodNames = "FunnelStep" | "OnboardingFunnelStep"
 export type AnalyticsMethodNames = "CustomEvent" | "EconomyEvent" | SteppedMethodNames
 
 export type Actions = {
-	action: () -> (),
-	resolve: (() -> ())?,
-	reject: ((string) -> ())?,
-	stepNumber: number?,
+	callBack: () -> (),
+	resolve: () -> (),
+	reject: (string?) -> (),
 }
+
+export type MetaData = {
+	stepNumber: number,
+	funnelSessionId: string?,
+}
+
+export type QueueData = { actions: Actions, metaData: MetaData? }
 
 export type Queue = {
 	[Player]: {
-		[AnalyticsMethodNames]: { Actions },
+		[AnalyticsMethodNames]: { QueueData },
 	},
 }
 

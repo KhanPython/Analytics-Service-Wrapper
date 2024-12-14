@@ -7,9 +7,8 @@ local Players = game:GetService("Players")
 local Promise = require(script.Parent.promise)
 local Types = require(script.Types)
 local Queue = require(script.Queue)
+local StepPrecedence = require(script.StepPrecedence)
 
-local HighestFunnelStep: { [Player]: { string: number } } = {}
-local HighestOnboardingFunnelStep: { [Player]: number } = {}
 local PlayerFunnelSessionIds: { [Player]: string } = {}
 
 local module = {}
@@ -82,9 +81,13 @@ function module:LogCustomEvent(player: Player, eventName: string, value: number?
 		assert(value == nil or typeof(value) == "number", "Invalid parameter: `value` must be a number.")
 		assert(validateCustomFields(customFields), "Invalid `customFields`.")
 
-		Queue:AddToQueue(player, "CustomEvent", function()
-			AnalyticsService:LogCustomEvent(player, eventName, value or 1, customFields)
-		end, resolve, reject)
+		Queue:AddToQueue(player, "CustomEvent", {
+			callBack = function()
+				AnalyticsService:LogCustomEvent(player, eventName, value or 1, customFields)
+			end,
+			resolve = resolve,
+			reject = reject,
+		})
 	end)
 end
 
@@ -99,6 +102,10 @@ function module:LogEconomyEvent(
 	customFields: Types.CustomFields?
 )
 	return Promise.new(function(resolve, reject)
+		assert(
+			player and typeof(player) == "Instance" and player:IsDescendantOf(Players),
+			"Invalid parameter: `player` must be provided."
+		)
 		assert(
 			flowType == nil or typeof(flowType) == "EnumItem",
 			"Invalid parameter: `flowType` must be an Enum.AnalyticsEconomyFlowType or nil for default dynamic determination."
@@ -122,18 +129,22 @@ function module:LogEconomyEvent(
 		amount = math.abs(amount)
 		endingBalance = math.max(endingBalance, 0)
 
-		Queue:AddToQueue(player, "EconomyEvent", function()
-			AnalyticsService:LogEconomyEvent(
-				player,
-				flowType,
-				currencyType,
-				amount,
-				endingBalance,
-				transactionType,
-				itemSKU,
-				customFields
-			)
-		end, resolve, reject)
+		Queue:AddToQueue(player, "EconomyEvent", {
+			callBack = function()
+				AnalyticsService:LogEconomyEvent(
+					player,
+					flowType,
+					currencyType,
+					amount,
+					endingBalance,
+					transactionType,
+					itemSKU,
+					customFields
+				)
+			end,
+			resolve = resolve,
+			reject = reject,
+		})
 	end)
 end
 
@@ -147,6 +158,10 @@ function module:LogFunnelStep(
 )
 	return Promise.new(function(resolve, reject)
 		assert(
+			player and typeof(player) == "Instance" and player:IsDescendantOf(Players),
+			"Invalid parameter: `player` must be provided."
+		)
+		assert(
 			funnelSessionId == nil or typeof(funnelSessionId) == "string",
 			"Invalid parameter: `funnelSessionId` must be a string."
 		)
@@ -158,6 +173,7 @@ function module:LogFunnelStep(
 		assert(stepName == nil or typeof(stepName) == "string", "Invalid parameter: `stepName` must be a string.")
 		assert(validateCustomFields(customFields), "Invalid `customFields`.")
 
+		-- Create a new funnel sessionId, if none was provided
 		if not funnelSessionId then
 			funnelSessionId = PlayerFunnelSessionIds[player]
 
@@ -167,30 +183,37 @@ function module:LogFunnelStep(
 			end
 		end
 
-		if
-			HighestFunnelStep[player]
-			and HighestFunnelStep[player][funnelSessionId]
-			and stepNumber <= HighestFunnelStep[player][funnelSessionId]
-		then
-			reject(
-				`Step {stepNumber} is invalid because a step greater than or equal to this has already been logged for funnelSessionId {funnelSessionId}.`
-			)
-			return
-		end
+		assert(
+			StepPrecedence:ValidateFunnelStep(player, stepNumber, funnelSessionId or ""),
+			StepPrecedence.InvalidFunnelStepErrorMessage(stepNumber, funnelSessionId or "nil")
+		)
 
-		Queue:AddToQueue(player, "FunnelStep", function()
-			AnalyticsService:LogFunnelStepEvent(
-				player,
-				funnelName,
-				funnelSessionId,
-				stepNumber,
-				stepName or "",
-				customFields
-			)
-			HighestFunnelStep[player] = {
-				[funnelSessionId] = stepNumber,
-			}
-		end, resolve, reject)
+		Queue:AddToQueue(player, "FunnelStep", {
+			callBack = function()
+				assert(
+					StepPrecedence:ValidateFunnelStep(player, stepNumber, funnelSessionId or ""),
+					StepPrecedence.InvalidFunnelStepErrorMessage(stepNumber, funnelSessionId or "nil")
+				)
+
+				AnalyticsService:LogFunnelStepEvent(
+					player,
+					funnelName,
+					funnelSessionId,
+					stepNumber,
+					stepName or "",
+					customFields
+				)
+
+				StepPrecedence.HighestFunnelStep[player] = {
+					[funnelSessionId] = stepNumber,
+				}
+			end,
+			resolve = resolve,
+			reject = reject,
+		}, {
+			stepNumber = stepNumber,
+			funnelSessionId = funnelSessionId,
+		})
 	end)
 end
 
@@ -202,21 +225,36 @@ function module:LogOnboardingFunnelStep(
 )
 	return Promise.new(function(resolve, reject)
 		assert(
+			player and typeof(player) == "Instance" and player:IsDescendantOf(Players),
+			"Invalid parameter: `player` must be provided."
+		)
+		assert(
 			typeof(stepNumber) == "number" and (stepNumber >= 1 and stepNumber <= 100),
 			"Invalid parameter: `stepNumber` must be a positive number between 1-100."
 		)
 		assert(stepName == nil or typeof(stepName) == "string", "Invalid parameter: `stepName` must be a string.")
 		assert(validateCustomFields(customFields), "Invalid `customFields`.")
 
-		if HighestOnboardingFunnelStep[player] and stepNumber <= HighestOnboardingFunnelStep[player] then
-			reject(`Step {stepNumber} is invalid because a step greater than or equal to this has already been logged.`)
-			return
-		end
+		assert(
+			StepPrecedence:ValidateOnBoardingFunnelStep(player, stepNumber),
+			StepPrecedence.InvalidOnboardingFunnelStepErrorMessage(stepNumber)
+		)
 
-		Queue:AddToQueue(player, "OnboardingFunnelStep", function()
-			AnalyticsService:LogOnboardingFunnelStepEvent(player, stepNumber, stepName or "", customFields)
-			HighestOnboardingFunnelStep[player] = stepNumber
-		end, resolve, reject)
+		Queue:AddToQueue(player, "OnboardingFunnelStep", {
+			callBack = function()
+				assert(
+					StepPrecedence:ValidateOnBoardingFunnelStep(player, stepNumber),
+					StepPrecedence.InvalidOnboardingFunnelStepErrorMessage(stepNumber)
+				)
+
+				AnalyticsService:LogOnboardingFunnelStepEvent(player, stepNumber, stepName or "", customFields)
+				StepPrecedence.HighestOnboardingFunnelStep[player] = stepNumber
+			end,
+			resolve = resolve,
+			reject = reject,
+		}, {
+			stepNumber = stepNumber,
+		})
 	end)
 end
 
