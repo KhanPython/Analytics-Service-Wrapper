@@ -1,3 +1,6 @@
+--!strict
+--!native
+
 local MessagingService = game:GetService("MessagingService")
 local Players = game:GetService("Players")
 

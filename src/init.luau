@@ -1,4 +1,5 @@
 --!nonstrict
+--!native
 
 local AnalyticsService = game:GetService("AnalyticsService")
 local HttpService = game:GetService("HttpService")
@@ -7,7 +8,6 @@ local Players = game:GetService("Players")
 local Promise = require(script.Parent.promise)
 local Types = require(script.Types)
 local Queue = require(script.Queue)
-local StepPrecedence = require(script.StepPrecedence)
 
 local PlayerFunnelSessionIds: { [Player]: string } = {}
 
@@ -183,18 +183,8 @@ function module:LogFunnelStep(
 			end
 		end
 
-		assert(
-			StepPrecedence:ValidateFunnelStep(player, stepNumber, funnelSessionId or ""),
-			StepPrecedence.InvalidFunnelStepErrorMessage(stepNumber, funnelSessionId or "nil")
-		)
-
 		Queue:AddToQueue(player, "FunnelStep", {
 			callBack = function()
-				assert(
-					StepPrecedence:ValidateFunnelStep(player, stepNumber, funnelSessionId or ""),
-					StepPrecedence.InvalidFunnelStepErrorMessage(stepNumber, funnelSessionId or "nil")
-				)
-
 				AnalyticsService:LogFunnelStepEvent(
 					player,
 					funnelName,
@@ -203,10 +193,6 @@ function module:LogFunnelStep(
 					stepName or "",
 					customFields
 				)
-
-				StepPrecedence.HighestFunnelStep[player] = {
-					[funnelSessionId] = stepNumber,
-				}
 			end,
 			resolve = resolve,
 			reject = reject,
@@ -235,20 +221,9 @@ function module:LogOnboardingFunnelStep(
 		assert(stepName == nil or typeof(stepName) == "string", "Invalid parameter: `stepName` must be a string.")
 		assert(validateCustomFields(customFields), "Invalid `customFields`.")
 
-		assert(
-			StepPrecedence:ValidateOnBoardingFunnelStep(player, stepNumber),
-			StepPrecedence.InvalidOnboardingFunnelStepErrorMessage(stepNumber)
-		)
-
 		Queue:AddToQueue(player, "OnboardingFunnelStep", {
 			callBack = function()
-				assert(
-					StepPrecedence:ValidateOnBoardingFunnelStep(player, stepNumber),
-					StepPrecedence.InvalidOnboardingFunnelStepErrorMessage(stepNumber)
-				)
-
 				AnalyticsService:LogOnboardingFunnelStepEvent(player, stepNumber, stepName or "", customFields)
-				StepPrecedence.HighestOnboardingFunnelStep[player] = stepNumber
 			end,
 			resolve = resolve,
 			reject = reject,
