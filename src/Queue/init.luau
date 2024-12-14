@@ -250,13 +250,9 @@ function module:AddToQueue(
 				end
 			end
 
-			if actions.resolve then
-				actions.resolve()
-			end
+			actions.resolve()
 		else
-			if actions.reject then
-				actions.reject(result)
-			end
+			actions.reject(result)
 		end
 	else
 		if not Queue[player] then
@@ -271,6 +267,10 @@ function module:AddToQueue(
 			actions = actions,
 			metaData = metaData,
 		})
+
+		warn(
+			`[Queue Warning]: AnalyticsService request budget exceeded for Player: {player.Name}. Further requests will be queued.`
+		)
 	end
 end
 
@@ -316,7 +316,10 @@ task.spawn(function()
 				end)
 
 				if not success and nextInQueue.actions and nextInQueue.actions.reject then
-					reject(nextInQueue.actions.reject, `Unable to process an event in the queue: \n{errMessage}`)
+					reject(
+						nextInQueue.actions.reject,
+						`[Queue Error]: Failed to process an event in the Queue: \n{errMessage}`
+					)
 				end
 			end
 		end
