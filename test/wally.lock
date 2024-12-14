@@ -8,11 +8,11 @@ version = "4.0.0"
 dependencies = []
 
 [[package]]
-name = "khanpython/analytics-service-wrapper"
-version = "3.1.1"
+name = "khanpython/analytics-service"
+version = "0.0.1"
 dependencies = [["promise", "evaera/promise@4.0.0"]]
 
 [[package]]
 name = "test/analyticsservicewrapper"
 version = "0.1.0"
-dependencies = [["analytics-service-wrapper", "khanpython/analytics-service-wrapper@3.1.1"]]
+dependencies = [["analytics-service", "khanpython/analytics-service@0.0.1"]]

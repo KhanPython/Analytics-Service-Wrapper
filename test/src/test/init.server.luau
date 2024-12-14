@@ -1,6 +1,6 @@
 local Players = game:GetService("Players")
 local Packages = script.Packages
-local AnalyticsServiceWrapper = require(Packages["analytics-service-wrapper"])
+local AnalyticsServiceWrapper = require(Packages["analytics-service"])
 
 Players.PlayerAdded:Connect(function(player)
 	warn("Started 2:")

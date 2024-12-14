@@ -1,0 +1,14 @@
+{
+  "name": "analytics-service",
+  "tree": {
+    "$className": "DataModel",
+    "ServerScriptService": {
+      "test": {
+        "$path": "src/test",
+        "Packages": {
+          "$path": "Packages"
+        }
+      }
+    }
+  }
+}
