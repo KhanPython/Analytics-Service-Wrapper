@@ -36,36 +36,6 @@ function validateCustomFields(customFields: Types.CustomFields?): boolean
 	return true
 end
 
-function module:ForValues(promiseCallback: any, playerList: { Player })
-	return Promise.new(function(resolve, reject, onCancel)
-		assert(typeof(promiseCallback) == "function", "Invalid `promiseCallback` provided.")
-		assert(playerList and #playerList > 0, "`list` cannot be an empty table.")
-
-		local activePromises = {}
-
-		for _, player in pairs(playerList) do
-			table.insert(activePromises, promiseCallback(player))
-		end
-
-		local settledPromise = Promise.allSettled(activePromises)
-			:andThen(function(results)
-				for _, result in pairs(results) do
-					if result.status == "rejected" then
-						warn(tostring(result.reason))
-					end
-				end
-				resolve()
-			end)
-			:catch(function(errMessage)
-				reject(errMessage)
-			end)
-
-		onCancel(function()
-			settledPromise:cancel()
-		end)
-	end)
-end
-
 function module:LogCustomEvent(player: Player, eventName: string, value: number?, customFields: Types.CustomFields?)
 	return Promise.new(function(resolve, reject, onCancel)
 		assert(

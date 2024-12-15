@@ -11,6 +11,9 @@ local Types = require(script.Parent.Types)
 local CurrentRequestCount: number = 0
 local LastRefreshTime: number = 0
 
+local REFRESH_TIME = 60
+local PROCESSING_TIME = 0.1
+
 function getBudget(): number
 	local currentCCU = GlobalCCU:Get()
 
@@ -136,8 +139,9 @@ function module:Add(data: Types.QueueObject)
 		end
 	end
 
+	local originalCallback = actions.callBack
 	actions.callBack = function()
-		actions.callBack()
+		originalCallback()
 
 		-- Automatically resolve when the callback succeeds
 		actions.resolve()
@@ -163,7 +167,7 @@ function module:Add(data: Types.QueueObject)
 		Queue:Enqueue(data :: Types.QueueObject)
 
 		warn(
-			`[Queue Warning]: AnalyticsService request budget exceeded for Player: {data.player.Name}. Further requests will be queued.`
+			`AnalyticsService request budget exceeded for Player: {data.player.Name}. Further requests will be queued.`
 		)
 	end
 end
@@ -176,7 +180,7 @@ end
 task.spawn(function()
 	while true do
 		local success, errMessage = pcall(function()
-			if os.clock() - LastRefreshTime >= 60 then
+			if os.clock() - LastRefreshTime >= REFRESH_TIME then
 				CurrentRequestCount = 0
 				LastRefreshTime = os.clock()
 			end
@@ -207,7 +211,7 @@ task.spawn(function()
 			warn(`Unexpected error in queue processor: \n{errMessage}`)
 		end
 
-		task.wait(0.1)
+		task.wait(PROCESSING_TIME)
 	end
 end)
 
@@ -222,7 +226,9 @@ Players.PlayerAdded:Connect(function(player: Player)
 			connection:Disconnect()
 		end
 
-		GlobalCCU:BroadcastPlayerCount()
+		task.defer(function()
+			GlobalCCU:BroadcastPlayerCount()
+		end)
 
 		StepPrecedence.MaxFunnelStep[player] = nil
 		StepPrecedence.MaxOnboardingFunnelStep[player] = nil
