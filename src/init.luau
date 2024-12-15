@@ -37,16 +37,9 @@ function validateCustomFields(customFields: Types.CustomFields?): boolean
 end
 
 function module:ForValues(promiseCallback: any, playerList: { Player })
-	return Promise.new(function(resolve, reject)
+	return Promise.new(function(resolve, reject, onCancel)
 		assert(typeof(promiseCallback) == "function", "Invalid `promiseCallback` provided.")
 		assert(playerList and #playerList > 0, "`list` cannot be an empty table.")
-
-		for _, player in pairs(playerList) do
-			assert(
-				typeof(player) == "Instance" and player:IsDescendantOf(Players),
-				"Invalid parameter: `player` must be provided."
-			)
-		end
 
 		local activePromises = {}
 
@@ -54,7 +47,7 @@ function module:ForValues(promiseCallback: any, playerList: { Player })
 			table.insert(activePromises, promiseCallback(player))
 		end
 
-		Promise.allSettled(activePromises)
+		local settledPromise = Promise.allSettled(activePromises)
 			:andThen(function(results)
 				for _, result in pairs(results) do
 					if result.status == "rejected" then
@@ -66,6 +59,10 @@ function module:ForValues(promiseCallback: any, playerList: { Player })
 			:catch(function(errMessage)
 				reject(errMessage)
 			end)
+
+		onCancel(function()
+			settledPromise:cancel()
+		end)
 	end)
 end
 

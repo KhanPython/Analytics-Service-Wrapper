@@ -1,12 +1,12 @@
 [package]
 name = "khanpython/analytics-service"
 description = "A Promise-based Analytics Service Wrapper for Roblox."
-version = "0.0.1"
+version = "0.0.2"
 license = "MIT"
 authors = ["khanpython (https://github.com/KhanPython)"]
 registry = "https://github.com/upliftgames/wally-index"
 realm = "shared"
-exclude = [".vscode"]
+exclude = [".vscode", "test"]
 
 [dependencies]
 promise = "evaera/promise@4.0.0"

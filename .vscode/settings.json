@@ -16,4 +16,5 @@
         "editor.defaultFormatter": "JohnnyMorganz.stylua",
         "editor.formatOnSave": true
     },
+    "luau-lsp.sourcemap.rojoProjectFile": "build.project.json",
 }
