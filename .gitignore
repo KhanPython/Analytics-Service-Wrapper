@@ -4,7 +4,6 @@
 /*.rbxmx
 /*.rbxm
 
-.vscode/settings.json
-/Packages
-/test
+Packages/
+
 /*.lock
