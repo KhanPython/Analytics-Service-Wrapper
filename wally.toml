@@ -1,12 +1,12 @@
 [package]
 name = "khanpython/analytics-service"
 description = "A Promise-based Analytics Service Wrapper for Roblox."
-version = "0.0.5"
+version = "0.0.6"
 license = "MIT"
 authors = ["khanpython (https://github.com/KhanPython)"]
 registry = "https://github.com/upliftgames/wally-index"
 realm = "shared"
-include = ["src", "src/**", "wally.toml", "wally.lock", "build.project.json", "LICENSE", "README.md"]
+include = ["src", "src/**", "wally.toml", "wally.lock", "default.project.json", "LICENSE", "README.md"]
 
 
 [dependencies]
