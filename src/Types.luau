@@ -1,7 +1,7 @@
 export type CustomFieldNames = "CustomField01" | "CustomField02" | "CustomField03"
 export type CustomFields = { [CustomFieldNames]: string }
-export type SteppedMethodNames = "FunnelStep" | "OnboardingFunnelStep"
-export type AnalyticsMethodNames = "CustomEvent" | "EconomyEvent" | SteppedMethodNames
+export type SteppedEvents = "FunnelStep" | "OnboardingFunnelStep"
+export type AnalyticsEvents = "CustomEvent" | "EconomyEvent" | SteppedEvents
 
 export type Actions = {
 	callBack: () -> (),
@@ -14,12 +14,22 @@ export type MetaData = {
 	funnelSessionId: string?,
 }
 
-export type QueueData = { actions: Actions, metaData: MetaData? }
+export type QueueObject = {
+	player: Player,
+	eventType: string,
+	actions: Actions,
+	metaData: MetaData?,
+}
 
 export type Queue = {
-	[Player]: {
-		[AnalyticsMethodNames]: { QueueData },
-	},
+	Enqueue: (self: Queue, value: QueueObject) -> (),
+	Dequeue: (self: Queue) -> QueueObject?,
+	Peek: (self: Queue) -> QueueObject?,
+	IsEmpty: (self: Queue) -> boolean,
+	Size: (self: Queue) -> number,
+	Clear: (self: Queue) -> (),
+	Remove: (self: Queue, value: QueueObject) -> boolean,
+	Items: { QueueObject }, -- Table to store the dictionaries
 }
 
 return {}

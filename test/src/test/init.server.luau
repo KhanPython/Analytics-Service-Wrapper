@@ -3,23 +3,13 @@ local Packages = script.Packages
 local AnalyticsServiceWrapper = require(Packages["analytics-service"])
 
 Players.PlayerAdded:Connect(function(player)
-	warn("Started 2:")
+	warn("Started:")
 
 	task.delay(10, function()
-		for i = 1, 100 do
-			AnalyticsServiceWrapper:LogFunnelStep(player, "RoundProgression", nil, i, "In the game")
+		for i = 1, 500 do
+			AnalyticsServiceWrapper:LogCustomEvent(player, "Test", 1)
 				:andThen(function()
-					warn("Resolved FunnelStep")
-				end)
-				:catch(function(err)
-					warn(err)
-				end)
-		end
-
-		for i = 1, 100 do
-			AnalyticsServiceWrapper:LogOnboardingFunnelStep(player, i)
-				:andThen(function()
-					warn("Resolved OnboardingFunnelStep")
+					warn("Resolved CustomEvent")
 				end)
 				:catch(function(err)
 					warn(err)

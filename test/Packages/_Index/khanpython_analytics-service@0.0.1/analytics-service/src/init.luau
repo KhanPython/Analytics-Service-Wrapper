@@ -1,5 +1,4 @@
---!nonstrict
---!native
+--!strict
 
 local AnalyticsService = game:GetService("AnalyticsService")
 local HttpService = game:GetService("HttpService")
@@ -7,13 +6,13 @@ local Players = game:GetService("Players")
 
 local Promise = require(script.Parent.promise)
 local Types = require(script.Types)
-local Queue = require(script.Queue)
+local Processor = require(script.Processor)
 
 local PlayerFunnelSessionIds: { [Player]: string } = {}
 
 local module = {}
 
-local function validateCustomFields(customFields: Types.CustomFields?): boolean
+function validateCustomFields(customFields: Types.CustomFields?): boolean
 	if not customFields then
 		return true
 	end
@@ -59,20 +58,19 @@ function module:ForValues(promiseCallback: any, playerList: { Player })
 			:andThen(function(results)
 				for _, result in pairs(results) do
 					if result.status == "rejected" then
-						warn("Function failed for value: " .. tostring(result.reason))
+						warn(tostring(result.reason))
 					end
 				end
 				resolve()
 			end)
 			:catch(function(errMessage)
-				warn("Unexpected error during Promise.allSettled: " .. tostring(errMessage))
 				reject(errMessage)
 			end)
 	end)
 end
 
 function module:LogCustomEvent(player: Player, eventName: string, value: number?, customFields: Types.CustomFields?)
-	return Promise.new(function(resolve, reject)
+	return Promise.new(function(resolve, reject, onCancel)
 		assert(
 			player and typeof(player) == "Instance" and player:IsDescendantOf(Players),
 			"Invalid parameter: `player` must be provided."
@@ -81,13 +79,23 @@ function module:LogCustomEvent(player: Player, eventName: string, value: number?
 		assert(value == nil or typeof(value) == "number", "Invalid parameter: `value` must be a number.")
 		assert(validateCustomFields(customFields), "Invalid `customFields`.")
 
-		Queue:AddToQueue(player, "CustomEvent", {
-			callBack = function()
-				AnalyticsService:LogCustomEvent(player, eventName, value or 1, customFields)
-			end,
-			resolve = resolve,
-			reject = reject,
-		})
+		local data = {
+			player = player,
+			eventType = "CustomEvent",
+			actions = {
+				callBack = function()
+					AnalyticsService:LogCustomEvent(player, eventName, value or 1, customFields)
+				end,
+				resolve = resolve,
+				reject = reject,
+			},
+		} :: Types.QueueObject
+
+		onCancel(function()
+			Processor:TryRemove(data)
+		end)
+
+		Processor:Add(data)
 	end)
 end
 
@@ -101,7 +109,7 @@ function module:LogEconomyEvent(
 	itemSKU: string?,
 	customFields: Types.CustomFields?
 )
-	return Promise.new(function(resolve, reject)
+	return Promise.new(function(resolve, reject, onCancel)
 		assert(
 			player and typeof(player) == "Instance" and player:IsDescendantOf(Players),
 			"Invalid parameter: `player` must be provided."
@@ -129,22 +137,32 @@ function module:LogEconomyEvent(
 		amount = math.abs(amount)
 		endingBalance = math.max(endingBalance, 0)
 
-		Queue:AddToQueue(player, "EconomyEvent", {
-			callBack = function()
-				AnalyticsService:LogEconomyEvent(
-					player,
-					flowType,
-					currencyType,
-					amount,
-					endingBalance,
-					transactionType,
-					itemSKU,
-					customFields
-				)
-			end,
-			resolve = resolve,
-			reject = reject,
-		})
+		local data = {
+			player = player,
+			eventType = "EconomyEvent",
+			actions = {
+				callBack = function()
+					AnalyticsService:LogEconomyEvent(
+						player,
+						flowType,
+						currencyType,
+						amount,
+						endingBalance,
+						transactionType,
+						itemSKU,
+						customFields
+					)
+				end,
+				resolve = resolve,
+				reject = reject,
+			},
+		} :: Types.QueueObject
+
+		onCancel(function()
+			Processor:TryRemove(data)
+		end)
+
+		Processor:Add(data)
 	end)
 end
 
@@ -156,7 +174,7 @@ function module:LogFunnelStep(
 	stepName: string?,
 	customFields: Types.CustomFields?
 )
-	return Promise.new(function(resolve, reject)
+	return Promise.new(function(resolve, reject, onCancel)
 		assert(
 			player and typeof(player) == "Instance" and player:IsDescendantOf(Players),
 			"Invalid parameter: `player` must be provided."
@@ -173,7 +191,7 @@ function module:LogFunnelStep(
 		assert(stepName == nil or typeof(stepName) == "string", "Invalid parameter: `stepName` must be a string.")
 		assert(validateCustomFields(customFields), "Invalid `customFields`.")
 
-		-- Create a new funnel sessionId, if none was provided
+		-- Retrieve or create a `funnelSessionId`, if none was provided
 		if not funnelSessionId then
 			funnelSessionId = PlayerFunnelSessionIds[player]
 
@@ -183,23 +201,34 @@ function module:LogFunnelStep(
 			end
 		end
 
-		Queue:AddToQueue(player, "FunnelStep", {
-			callBack = function()
-				AnalyticsService:LogFunnelStepEvent(
-					player,
-					funnelName,
-					funnelSessionId,
-					stepNumber,
-					stepName or "",
-					customFields
-				)
-			end,
-			resolve = resolve,
-			reject = reject,
-		}, {
-			stepNumber = stepNumber,
-			funnelSessionId = funnelSessionId,
-		})
+		local data = {
+			player = player,
+			eventType = "FunnelStep",
+			actions = {
+				callBack = function()
+					AnalyticsService:LogFunnelStepEvent(
+						player,
+						funnelName,
+						funnelSessionId,
+						stepNumber,
+						stepName or "",
+						customFields
+					)
+				end,
+				resolve = resolve,
+				reject = reject,
+			},
+			metaData = {
+				stepNumber = stepNumber,
+				funnelSessionId = funnelSessionId,
+			},
+		} :: Types.QueueObject
+
+		onCancel(function()
+			Processor:TryRemove(data)
+		end)
+
+		Processor:Add(data)
 	end)
 end
 
@@ -209,7 +238,7 @@ function module:LogOnboardingFunnelStep(
 	stepName: string?,
 	customFields: Types.CustomFields?
 )
-	return Promise.new(function(resolve, reject)
+	return Promise.new(function(resolve, reject, onCancel)
 		assert(
 			player and typeof(player) == "Instance" and player:IsDescendantOf(Players),
 			"Invalid parameter: `player` must be provided."
@@ -221,15 +250,26 @@ function module:LogOnboardingFunnelStep(
 		assert(stepName == nil or typeof(stepName) == "string", "Invalid parameter: `stepName` must be a string.")
 		assert(validateCustomFields(customFields), "Invalid `customFields`.")
 
-		Queue:AddToQueue(player, "OnboardingFunnelStep", {
-			callBack = function()
-				AnalyticsService:LogOnboardingFunnelStepEvent(player, stepNumber, stepName or "", customFields)
-			end,
-			resolve = resolve,
-			reject = reject,
-		}, {
-			stepNumber = stepNumber,
-		})
+		local data = {
+			player = player,
+			eventType = "OnboardingFunnelStep",
+			actions = {
+				callBack = function()
+					AnalyticsService:LogOnboardingFunnelStepEvent(player, stepNumber, stepName or "", customFields)
+				end,
+				resolve = resolve,
+				reject = reject,
+			},
+			metaData = {
+				stepNumber = stepNumber,
+			},
+		} :: Types.QueueObject
+
+		onCancel(function()
+			Processor:TryRemove(data)
+		end)
+
+		Processor:Add(data)
 	end)
 end
 
