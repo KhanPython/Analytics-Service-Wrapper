@@ -133,7 +133,7 @@ function module:LogEconomyEvent(
 	end)
 end
 
-function module:LogFunnelStep(
+function module:LogFunnelStepEvent(
 	player: Player,
 	funnelName: string,
 	funnelSessionId: string?,
@@ -199,7 +199,7 @@ function module:LogFunnelStep(
 	end)
 end
 
-function module:LogOnboardingFunnelStep(
+function module:LogOnboardingFunnelStepEvent(
 	player: Player,
 	stepNumber: number,
 	stepName: string?,

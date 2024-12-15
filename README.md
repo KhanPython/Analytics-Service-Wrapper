@@ -17,7 +17,7 @@
 1. Ensure you have the [Wally package manager](https://github.com/UpliftGames/wally) installed on your system.
 2. Add the following line to your `wally.toml` file under the `[dependencies]` section:
    ```toml
-   analytics-service-wrapper = "khanpython/analytics-service@0.0.4"
+   analytics-service-wrapper = "khanpython/analytics-service@0.0.5"
    ```
 3. Run the Wally install command to download and integrate the package:
     ```bash
@@ -33,15 +33,15 @@
 
 ### Methods:
 
-This wrapper includes all methods provided by the default Analytics Service, with the exception of ProgressionEvents. For detailed information on the available parameters, visit the official [Analytics Service Documentation](https://create.roblox.com/docs/reference/engine/classes/AnalyticsService#summary).
+This wrapper includes all methods provided by the default Analytics Service, with the exception to ProgressionEvents. For a more detailed information on the available parameters, visit the official [Analytics Service Documentation](https://create.roblox.com/docs/reference/engine/classes/AnalyticsService#summary).
 
 - **`LogCustomEvent(player, eventName, value?, customFields?)`**
   - Logs a custom event with optional value and custom fields.
 - **`LogEconomyEvent(player, flowType, currencyType, amount, endingBalance, transactionType, itemSKU?, customFields?)`**
   - Logs an economic event, such as purchases or earnings.
-- **`LogFunnelStep(player, funnelName, funnelSessionId?, stepNumber, stepName?, customFields?)`**
+- **`LogFunnelStepEvent(player, funnelName, funnelSessionId?, stepNumber, stepName?, customFields?)`**
   - Logs a step in the funnel. If no funnelSessionId is provided, then a GUID will be generated.
-- **`LogOnboardingFunnelStep(player, stepNumber, stepName?, customFields?)`**
+- **`LogOnboardingFunnelStepEvent(player, stepNumber, stepName?, customFields?)`**
   - Logs a step in the onboarding funnel.
 ---
 
@@ -51,7 +51,7 @@ This wrapper includes all methods provided by the default Analytics Service, wit
 
 ```lua
 local yourFunnelSessionId = path or nil -- Leave nil if you want an automatically generated funnelSessionId assigned to the player
-AnalyticsWrapper:LogFunnelStep(player, "LevelProgression", nil, 1, "LevelStart")
+AnalyticsWrapper:LogFunnelStepEvent(player, "LevelProgression", nil, 1, "LevelStart")
     :andThen(function()
         print("Funnel step logged successfully.")
     end)

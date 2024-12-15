@@ -3,16 +3,26 @@
 local Players = game:GetService("Players")
 local module = {}
 
-local StepPrecedence = require(script.StepPrecedence)
 local GlobalCCU = require(script.GlobalCCU)
 local Queue = require(script.Queue)
 local Types = require(script.Parent.Types)
+
+local MaxFunnelStep = {} :: { [Player]: { [string]: number } }
+local MaxOnboardingFunnelStep = {} :: { [Player]: number }
 
 local CurrentRequestCount: number = 0
 local LastRefreshTime: number = 0
 
 local REFRESH_TIME = 60
 local PROCESSING_TIME = 0.1
+
+function invalidFunnelStepErrorMessage(stepNumber: number, funnelSessionId: string): string
+	return `Step {stepNumber} is invalid because a step greater than or equal to this has already been logged for funnelSessionId: {funnelSessionId}.`
+end
+
+function invalidOnboardingFunnelStepErrorMessage(stepNumber: number): string
+	return `Step {stepNumber} is invalid because a step greater than or equal to this has already been logged.`
+end
 
 function getBudget(): number
 	local currentCCU = GlobalCCU:Get()
@@ -44,24 +54,17 @@ function processObject(objectInQueue: Types.QueueObject)
 		if eventType == "FunnelStep" then
 			local funnelSessionId = metaData.funnelSessionId
 			assert(funnelSessionId, "`funnelSessionId` required")
-			maxStepNumber = StepPrecedence.MaxFunnelStep[player]
-					and StepPrecedence.MaxFunnelStep[player][funnelSessionId]
-				or 0
+			maxStepNumber = MaxFunnelStep[player] and MaxFunnelStep[player][funnelSessionId] or 0
 		elseif eventType == "OnboardingFunnelStep" then
-			maxStepNumber = StepPrecedence.MaxOnboardingFunnelStep[player]
+			maxStepNumber = MaxOnboardingFunnelStep[player]
 		end
 
 		-- Skip processing and reject if the current step is not the greater step in the queue
 		if metaData.stepNumber <= maxStepNumber then
 			if eventType == "FunnelStep" then
-				actions.reject(
-					StepPrecedence.InvalidFunnelStepErrorMessage(
-						metaData.stepNumber,
-						metaData.funnelSessionId :: string
-					)
-				)
+				actions.reject(invalidFunnelStepErrorMessage(metaData.stepNumber, metaData.funnelSessionId :: string))
 			elseif eventType == "OnboardingFunnelStep" then
-				actions.reject(StepPrecedence.InvalidOnboardingFunnelStepErrorMessage(metaData.stepNumber))
+				actions.reject(invalidOnboardingFunnelStepErrorMessage(metaData.stepNumber))
 			end
 
 			return
@@ -69,12 +72,12 @@ function processObject(objectInQueue: Types.QueueObject)
 
 		-- Update the highest step number
 		if eventType == "FunnelStep" and metaData.funnelSessionId then
-			if not StepPrecedence.MaxFunnelStep[player] then
-				StepPrecedence.MaxFunnelStep[player] = {} :: { [string]: number }
+			if not MaxFunnelStep[player] then
+				MaxFunnelStep[player] = {} :: { [string]: number }
 			end
-			StepPrecedence.MaxFunnelStep[player][metaData.funnelSessionId] = metaData.stepNumber
+			MaxFunnelStep[player][metaData.funnelSessionId] = metaData.stepNumber
 		elseif eventType == "OnboardingFunnelStep" then
-			StepPrecedence.MaxOnboardingFunnelStep[player] = metaData.stepNumber
+			MaxOnboardingFunnelStep[player] = metaData.stepNumber
 		end
 	end
 
@@ -127,15 +130,20 @@ function module:Add(data: Types.QueueObject)
 				data.metaData.funnelSessionId and typeof(data.metaData.funnelSessionId) == "string",
 				"Invalid `metaData` index: `OnboardingFunnelStep` event expects `funnelSessionId` as a string."
 			)
-			assert(
-				StepPrecedence:ValidateFunnelStep(data.player, data.metaData.stepNumber, data.metaData.funnelSessionId),
-				StepPrecedence.InvalidFunnelStepErrorMessage(data.metaData.stepNumber, data.metaData.funnelSessionId)
-			)
+
+			if MaxFunnelStep[data.player] and MaxFunnelStep[data.player][data.metaData.funnelSessionId] then
+				assert(
+					data.metaData.stepNumber > MaxFunnelStep[data.player][data.metaData.funnelSessionId],
+					invalidFunnelStepErrorMessage(data.metaData.stepNumber, data.metaData.funnelSessionId)
+				)
+			end
 		elseif data.eventType == "OnboardingFunnelStep" then
-			assert(
-				StepPrecedence:ValidateOnBoardingFunnelStep(data.player, data.metaData.stepNumber),
-				StepPrecedence.InvalidOnboardingFunnelStepErrorMessage(data.metaData.stepNumber)
-			)
+			if MaxOnboardingFunnelStep[data.player] then
+				assert(
+					data.metaData.stepNumber > MaxOnboardingFunnelStep[data.player],
+					invalidOnboardingFunnelStepErrorMessage(data.metaData.stepNumber)
+				)
+			end
 		end
 	end
 
@@ -155,13 +163,13 @@ function module:Add(data: Types.QueueObject)
 
 		local metaData = data.metaData :: Types.MetaData
 		if data.eventType == "FunnelStep" and metaData.funnelSessionId then
-			if not StepPrecedence.MaxFunnelStep[data.player] then
-				StepPrecedence.MaxFunnelStep[data.player] = {}
+			if not MaxFunnelStep[data.player] then
+				MaxFunnelStep[data.player] = {}
 			end
 
-			StepPrecedence.MaxFunnelStep[data.player][metaData.funnelSessionId] = metaData.stepNumber
+			MaxFunnelStep[data.player][metaData.funnelSessionId] = metaData.stepNumber
 		elseif data.eventType == "OnboardingFunnelStep" then
-			StepPrecedence.MaxOnboardingFunnelStep[data.player] = metaData.stepNumber
+			MaxOnboardingFunnelStep[data.player] = metaData.stepNumber
 		end
 	else
 		Queue:Enqueue(data :: Types.QueueObject)
@@ -230,8 +238,8 @@ Players.PlayerAdded:Connect(function(player: Player)
 			GlobalCCU:BroadcastPlayerCount()
 		end)
 
-		StepPrecedence.MaxFunnelStep[player] = nil
-		StepPrecedence.MaxOnboardingFunnelStep[player] = nil
+		MaxFunnelStep[player] = nil
+		MaxOnboardingFunnelStep[player] = nil
 
 		-- Remove and reject
 		for i = #Queue.Items, 1, -1 do
