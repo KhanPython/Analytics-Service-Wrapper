@@ -100,7 +100,6 @@ function module:Add(data: Types.QueueObject)
 
 	if PlayerBudgets[player] > 0 then
 		PlayerBudgets[player] -= 1
-		warn(PlayerBudgets[player])
 		actions.callBack()
 	else
 		Queue:Enqueue(data)
