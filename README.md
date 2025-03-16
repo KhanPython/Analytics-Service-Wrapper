@@ -17,7 +17,7 @@
 1. Ensure you have the [Wally package manager](https://github.com/UpliftGames/wally) installed on your system.
 2. Add the following line to your `wally.toml` file under the `[dependencies]` section:
    ```toml
-   analytics-service-wrapper = "khanpython/analytics-service@0.0.6"
+   analytics-service-wrapper = "khanpython/analytics-service@0.0.7"
    ```
 3. Run the Wally install command to download and integrate the package:
     ```bash
@@ -64,18 +64,18 @@ AnalyticsWrapper:LogFunnelStepEvent(player, "LevelProgression", nil, 1, "LevelSt
 ### FAQ:
 1. **How are events processed?**
    
-   Events are processed immediately if the current request count is below the calculated budget. If the request count exceeds the budget, the event is added to the queue.
+   Events are processed immediately if the current request count is below the calculated budget (140 calls per player). If the request count exceeds the budget, the event is added to the queue.
 
 2. **How does the queuing work?**
    
    A background task continuously processes events from the queue. At each step:
-    - It refreshes the request count every 60 seconds.
+    - It refreshes the request count every 30 seconds.
     - If the budget allows, the next event in the queue is processed.
     - Errors during processing are caught and logged, and the event is rejected.
 
 3. **How is the budgeting calculated in the queue?**
    
-    It attempts to adhere to the limits imposed by Roblox using the `120 + (20 * CCU)` formula. The global CCU is retrieved using [`MessagingService`](https://create.roblox.com/docs/reference/cloud/messaging-service/v1) API. 
+    It attempts to adhere to the limits imposed by Roblox using the `120 + (20 * CCU)` formula at `140` calls every 30 seconds. 
 
 4. **What happens if a funnel step is logged out of sequence?**
 
