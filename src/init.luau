@@ -115,7 +115,7 @@ function module:LogEconomyEvent(
 						currencyType,
 						amount,
 						endingBalance,
-						transactionType,
+						transactionType.Name,
 						itemSKU,
 						customFields
 					)
