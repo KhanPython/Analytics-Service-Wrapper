@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Aftman
+        uses: ok-nick/setup-aftman@v0.4.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read version from wally.toml
+        id: version
+        run: echo "version=$(grep '^version' wally.toml | sed 's/version =
+          "\(.*\)"/\1/')" >> "$GITHUB_OUTPUT"
+
+      - name: Read changelog
+        id: changelog
+        run: |
+          NOTES=$(awk '/^## /{if(found) exit; found=1; next} found{print}' CHANGELOG.md)
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Build .rbxm
+        run: rojo build default.project.json -o analytics-service.rbxm
+
+      - name: Publish to Wally
+        run: |
+          mkdir -p ~/.wally
+          printf '[tokens]\n"https://api.wally.run/" = "%s"\n' "${{ secrets.WALLY_AUTH }}" > ~/.wally/auth.toml
+          wally publish
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          body: ${{ steps.changelog.outputs.notes }}
+          files: analytics-service.rbxm

@@ -1,261 +1,336 @@
 --!strict
-
+-- Services
+local AnalyticsService = game:GetService("AnalyticsService")
 local Players = game:GetService("Players")
-local module = {}
 
-local Queue = require(script.Queue)
+-- Dependencies
 local Types = require(script.Parent.Types)
+local createBucketKey = require(script.Parent.Util.createBucketKey)
 
-local MaxFunnelStep = {} :: { [Player]: { [string]: number } }
-local MaxOnboardingFunnelStep = {} :: { [Player]: number }
-local PlayerBudgets = {} :: { [Player]: number }
-local LastRefreshTime: number = 0
+-- Roblox AnalyticsService soft rate limit: ~120 + 20*CCU events per minute, server-wide.
+local BASE_RATE_PER_MIN = 120
+local PER_PLAYER_RATE_PER_MIN = 20
+local ECONOMY_FLUSH_INTERVAL = 5
+local DRAIN_INTERVAL = 0.25
+local MAX_QUEUE_SIZE = 500
 
-local REFRESH_TIME = 30
-local PROCESSING_TIME = 0.1
+type EconomyBucket = {
+	net: number,
+	endingBalance: number?,
+	transactionType: Types.EconomyTransactionType,
+	itemSKU: string?,
+	customFields: Types.CustomFields?,
+}
+type EconomyMap = { [Player]: { [string]: { [string]: EconomyBucket } } }
 
-function invalidFunnelStepErrorMessage(stepNumber: number, funnelSessionId: string): string
-	return `Step {stepNumber} is invalid because a step greater than or equal to this has already been logged for funnelSessionId: {funnelSessionId}.`
+-- State (server-wide token bucket + bounded queue)
+local tokens: number = BASE_RATE_PER_MIN
+local lastRefill: number = os.clock()
+
+-- Bounded FIFO backed by explicit head/tail indices so dequeue is O(1) instead of
+-- the O(n) cost of table.remove(queue, 1). Occupied slots live in [queueHead, queueTail).
+local queue: { Types.QueueObject } = {}
+local queueHead: number = 1
+local queueTail: number = 1
+local pendingEconomy: EconomyMap = {}
+
+-- Funnel step state is keyed by "<funnelName>|<funnelSessionId>" so distinct funnels
+-- (or a re-used sessionId) cannot cross-contaminate step precedence.
+local maxFunnelStep: { [Player]: { [string]: number } } = {}
+local maxOnboardingStep: { [Player]: number } = {}
+local drainActive: boolean = false
+local economyFlushActive: boolean = false
+
+-- Helpers
+local function serverCap(): number
+	return BASE_RATE_PER_MIN + PER_PLAYER_RATE_PER_MIN * #Players:GetPlayers()
 end
 
-function invalidOnboardingFunnelStepErrorMessage(stepNumber: number): string
-	return `Step {stepNumber} is invalid because a step greater than or equal to this has already been logged.`
+local function refill()
+	local now = os.clock()
+	local dt = now - lastRefill
+	lastRefill = now
+	local cap = serverCap()
+	tokens = math.min(tokens + dt * (cap / 60), cap)
 end
 
-function getBudget(): number
-	return 140 -- 120 + (20 * CCU)
+local function tryConsumeToken(): boolean
+	refill()
+	local available = tokens >= 1
+	tokens = available and (tokens - 1) or tokens
+	return available
 end
 
-function processObject(objectInQueue: Types.QueueObject)
-	local actions = objectInQueue.actions
-	if not actions then
+local function fire(item: Types.QueueObject)
+	local ok, err = pcall(item.callBack)
+	if not ok then
+		warn(`[analytics-service] failed to log {item.eventType}: {err}`)
+	end
+end
+
+local function resolveTransactionArg(tx: Types.EconomyTransactionType): string
+	return (tx :: any).Name
+end
+
+local function fireBucket(player: Player, currencyType: string, bucket: EconomyBucket)
+	local net = bucket.net
+	if net == 0 then
 		return
 	end
-
-	local player = objectInQueue.player
-	assert(player and player:IsDescendantOf(Players), "`player` required")
-
-	if not PlayerBudgets[player] then
-		PlayerBudgets[player] = getBudget()
+	local flow = (net > 0) and Enum.AnalyticsEconomyFlowType.Source or Enum.AnalyticsEconomyFlowType.Sink
+	local ok, err = pcall(
+		AnalyticsService.LogEconomyEvent,
+		AnalyticsService,
+		player,
+		flow,
+		currencyType,
+		math.abs(net),
+		bucket.endingBalance or 0,
+		resolveTransactionArg(bucket.transactionType),
+		bucket.itemSKU,
+		bucket.customFields
+	)
+	if not ok then
+		warn(`[analytics-service] failed to log EconomyEvent: {err}`)
 	end
+end
 
-	if PlayerBudgets[player] <= 0 then
-		actions.reject(`Player {player.Name} has exceeded their analytics request budget.`)
-		return
-	end
-
-	PlayerBudgets[player] -= 1
-
-	local eventType = objectInQueue.eventType
-	assert(eventType, "`eventType` required")
-
-	-- Check for step precedence (Relevant for funnel events)
-	if eventType == "FunnelStep" or eventType == "OnboardingFunnelStep" then
-		local metaData = objectInQueue.metaData
-		assert(metaData, "`metaData` required")
-
-		local currentStep = metaData.stepNumber
-		assert(currentStep, "`stepNumber` required")
-
-		local maxStepNumber = 0
-		if eventType == "FunnelStep" then
-			local funnelSessionId = metaData.funnelSessionId
-			assert(funnelSessionId, "`funnelSessionId` required")
-			maxStepNumber = MaxFunnelStep[player] and MaxFunnelStep[player][funnelSessionId] or 0
-		elseif eventType == "OnboardingFunnelStep" then
-			maxStepNumber = MaxOnboardingFunnelStep[player] or 0
+local function flushEconomy()
+	for player, playerMap in pendingEconomy do
+		if not player:IsDescendantOf(Players) then
+			pendingEconomy[player] = nil
+			continue
 		end
 
-		-- Skip processing and reject if the current step is not the greater step in the queue
-		if metaData.stepNumber <= maxStepNumber then
-			if eventType == "FunnelStep" then
-				actions.reject(invalidFunnelStepErrorMessage(metaData.stepNumber, metaData.funnelSessionId :: string))
-			elseif eventType == "OnboardingFunnelStep" then
-				actions.reject(invalidOnboardingFunnelStepErrorMessage(metaData.stepNumber))
+		for currencyType, bucketMap in playerMap do
+			for key, bucket in bucketMap do
+				if bucket.net == 0 then
+					bucketMap[key] = nil
+					continue
+				end
+
+				if not tryConsumeToken() then
+					return
+				end
+
+				fireBucket(player, currencyType, bucket)
+				bucketMap[key] = nil
 			end
 
+			if next(bucketMap) == nil then
+				playerMap[currencyType] = nil
+			end
+		end
+
+		if next(playerMap) == nil then
+			pendingEconomy[player] = nil
+		end
+	end
+end
+
+-- Final-flush path (leave/shutdown): fires every pending bucket for a player
+-- without consulting the token bucket, since the alternative is silent data loss.
+-- AnalyticsService enforces its own soft limit server-side.
+local function flushPlayerEconomy(player: Player)
+	local playerMap = pendingEconomy[player]
+	if not playerMap then
+		return
+	end
+	for currencyType, bucketMap in playerMap do
+		for _, bucket in bucketMap do
+			fireBucket(player, currencyType, bucket)
+		end
+	end
+	pendingEconomy[player] = nil
+end
+
+local function hasPendingEconomy(): boolean
+	return next(pendingEconomy) ~= nil
+end
+
+local function scheduleEconomyFlush()
+	if economyFlushActive then
+		return
+	end
+	economyFlushActive = true
+	task.delay(ECONOMY_FLUSH_INTERVAL, function()
+		economyFlushActive = false
+		flushEconomy()
+		if hasPendingEconomy() then
+			scheduleEconomyFlush()
+		end
+	end)
+end
+
+local function queueSize(): number
+	return queueTail - queueHead
+end
+
+local function popQueueHead(): Types.QueueObject
+	local item = queue[queueHead] :: Types.QueueObject
+	queue[queueHead] = nil
+	queueHead += 1
+	-- Reset indices once empty so they don't grow unboundedly across a long session.
+	if queueHead == queueTail then
+		queueHead = 1
+		queueTail = 1
+	end
+	return item
+end
+
+local function startDrain()
+	if drainActive then
+		return
+	end
+	drainActive = true
+	task.spawn(function()
+		while queueSize() > 0 do
+			local item = queue[queueHead]
+			if not item.player:IsDescendantOf(Players) then
+				popQueueHead()
+			elseif tryConsumeToken() then
+				popQueueHead()
+				fire(item)
+			else
+				task.wait(DRAIN_INTERVAL)
+			end
+		end
+		drainActive = false
+	end)
+end
+
+-- Module
+local module = {}
+
+function module:Add(data: Types.QueueObject)
+	-- Step precedence for funnel events (reject earlier steps at enqueue time).
+	if data.eventType == "FunnelStep" then
+		local metaData = data.metaData :: Types.SteppedMetaData
+		local player = data.player
+		local funnelKey = `{metaData.funnelName}|{metaData.funnelSessionId}`
+		local playerMap = maxFunnelStep[player]
+		local prev = (playerMap and playerMap[funnelKey]) or 0
+
+		if metaData.stepNumber <= prev then
+			warn(
+				`[analytics-service] skipped FunnelStep step {metaData.stepNumber} <= previous {prev} for funnel '{metaData.funnelName}' sessionId: {metaData.funnelSessionId}`
+			)
 			return
 		end
 
-		-- Update the highest step number
-		if eventType == "FunnelStep" and metaData.funnelSessionId then
-			if not MaxFunnelStep[player] then
-				MaxFunnelStep[player] = {} :: { [string]: number }
-			end
-			MaxFunnelStep[player][metaData.funnelSessionId] = metaData.stepNumber
-		elseif eventType == "OnboardingFunnelStep" then
-			MaxOnboardingFunnelStep[player] = metaData.stepNumber
+		maxFunnelStep[player] = playerMap or {}
+		maxFunnelStep[player][funnelKey] = metaData.stepNumber
+	elseif data.eventType == "OnboardingFunnelStep" then
+		local metaData = data.metaData :: Types.SteppedMetaData
+		local player = data.player
+		local prev = maxOnboardingStep[player] or 0
+
+		if metaData.stepNumber <= prev then
+			warn(`[analytics-service] skipped OnboardingFunnelStep step {metaData.stepNumber} <= previous {prev}`)
+			return
 		end
+
+		maxOnboardingStep[player] = metaData.stepNumber
 	end
 
-	actions.callBack()
+	-- Bounded queue: drop the oldest item if we're full (rare under normal rates).
+	if queueSize() >= MAX_QUEUE_SIZE then
+		local dropped = popQueueHead()
+		warn(`[analytics-service] queue overflow; dropped oldest event: {dropped.eventType}`)
+	end
+
+	queue[queueTail] = data
+	queueTail += 1
+	startDrain()
 end
 
-function module:Add(data: Types.QueueObject)
-	assert(data and typeof(data) == "table", "Invalid parameter: `data` must be a table value.")
-	assert(
-		data.player and typeof(data.player) == "Instance" and data.player:IsDescendantOf(Players),
-		"Invalid parameter: expected a Player."
-	)
-	assert(
-		data.eventType and typeof(data.eventType) == "string" and data.eventType == "CustomEvent"
-			or data.eventType == "EconomyEvent"
-			or data.eventType == "FunnelStep"
-			or data.eventType == "OnboardingFunnelStep",
-		"Invalid parameter: `queueKey` must be either of the `AnalyticsMethodNames` string types."
-	)
-
-	local actions = data.actions
-	assert(actions and typeof(actions) == "table", "Invalid parameter: `actions` must be a table value.")
-	assert(
-		actions.callBack and typeof(actions.callBack) == "function",
-		"Invalid `actions` index: `callBack` must be a function."
-	)
-	assert(
-		actions.reject and typeof(actions.reject) == "function",
-		"Invalid `actions` index: `reject` must be a function."
-	)
-	assert(
-		actions.resolve and typeof(actions.resolve) == "function",
-		"Invalid `actions` index: `resolve` must be a function."
-	)
-
-	if data.eventType == "FunnelStep" or data.eventType == "OnboardingFunnelStep" then
-		assert(
-			data.metaData and typeof(data.metaData) == "table",
-			"Invalid parameter: `FunnelStep` and `OnboardingFunnelStep` events expect `metaData` as a table value."
-		)
-
-		assert(
-			data.metaData.stepNumber and typeof(data.metaData.stepNumber) == "number",
-			"Invalid `metaData` index: `FunnelStep` and `OnboardingFunnelStep` events expect `stepNumber` as a number."
-		)
-
-		if data.eventType == "FunnelStep" then
-			assert(
-				data.metaData.funnelSessionId and typeof(data.metaData.funnelSessionId) == "string",
-				"Invalid `metaData` index: `OnboardingFunnelStep` event expects `funnelSessionId` as a string."
-			)
-
-			if MaxFunnelStep[data.player] and MaxFunnelStep[data.player][data.metaData.funnelSessionId] then
-				assert(
-					data.metaData.stepNumber > MaxFunnelStep[data.player][data.metaData.funnelSessionId],
-					invalidFunnelStepErrorMessage(data.metaData.stepNumber, data.metaData.funnelSessionId)
-				)
-			end
-		elseif data.eventType == "OnboardingFunnelStep" then
-			if MaxOnboardingFunnelStep[data.player] then
-				assert(
-					data.metaData.stepNumber > MaxOnboardingFunnelStep[data.player],
-					invalidOnboardingFunnelStepErrorMessage(data.metaData.stepNumber)
-				)
-			end
-		end
-	end
-
-	local originalCallback = actions.callBack
-	actions.callBack = function()
-		originalCallback()
-
-		-- Automatically resolve when the callback succeeds
-		actions.resolve()
-	end
-
+function module:AddEconomyEvent(data: Types.EconomyData)
 	local player = data.player
-	if not PlayerBudgets[player] then
-		PlayerBudgets[player] = getBudget()
+	pendingEconomy[player] = pendingEconomy[player] or {}
+	local currencyMap = pendingEconomy[player][data.currencyType]
+	if not currencyMap then
+		currencyMap = {}
+		pendingEconomy[player][data.currencyType] = currencyMap
 	end
 
-	if PlayerBudgets[player] > 0 then
-		PlayerBudgets[player] -= 1
-		actions.callBack()
-
-		local metaData = data.metaData :: Types.MetaData
-		if data.eventType == "FunnelStep" and metaData.funnelSessionId then
-			if not MaxFunnelStep[data.player] then
-				MaxFunnelStep[data.player] = {}
-			end
-
-			MaxFunnelStep[data.player][metaData.funnelSessionId] = metaData.stepNumber
-		elseif data.eventType == "OnboardingFunnelStep" then
-			MaxOnboardingFunnelStep[data.player] = metaData.stepNumber
-		end
-	else
-		Queue:Enqueue(data :: Types.QueueObject)
-		warn(`AnalyticsService request budget exceeded for Player: {player.Name}. Further requests will be queued.`)
+	local key = createBucketKey(data.transactionType, data.itemSKU, data.customFields)
+	local bucket = currencyMap[key]
+	if not bucket then
+		bucket = {
+			net = 0,
+			transactionType = data.transactionType,
+			itemSKU = data.itemSKU,
+			customFields = data.customFields,
+		}
+		currencyMap[key] = bucket
 	end
+
+	local delta = (data.flowType == Enum.AnalyticsEconomyFlowType.Source) and data.amount or -data.amount
+	bucket.net += delta
+	bucket.endingBalance = data.endingBalance
+
+	scheduleEconomyFlush()
 end
 
-function module:TryRemove(data: Types.QueueObject)
-	Queue:Remove(data)
-end
--- Queue processor
-task.spawn(function()
-	while true do
-		local success, errMessage = pcall(function()
-			if os.clock() - LastRefreshTime >= REFRESH_TIME then
-				for player, _ in pairs(PlayerBudgets) do
-					PlayerBudgets[player] = getBudget()
-				end
-				LastRefreshTime = os.clock()
-			end
-
-			local nextInQueue = Queue:Dequeue()
-			if not nextInQueue then
-				return false
-			end
-
-			local success, errMessage = pcall(function()
-				processObject(nextInQueue)
-			end)
-
-			if not success then
-				nextInQueue.actions.reject(
-					`Unexpected error whilst trying to processes an object in queue: \n{errMessage}`
-				)
-			end
-
-			return true
-		end)
-
-		if not success then
-			warn(`Unexpected error in queue processor: \n{errMessage}`)
-		end
-
-		task.wait(PROCESSING_TIME)
-	end
-end)
-
-Players.PlayerAdded:Connect(function(player: Player)
-	PlayerBudgets[player] = getBudget()
-
-	local connection
+local function onPlayerAdded(player: Player)
+	local connection: RBXScriptConnection
 	connection = player.AncestryChanged:Connect(function()
 		if player:IsDescendantOf(game) then
 			return
 		end
-
-		if connection and typeof(connection) == "RBXScriptConnection" then
-			connection:Disconnect()
-		end
-
-		MaxFunnelStep[player] = nil
-		MaxOnboardingFunnelStep[player] = nil
-		PlayerBudgets[player] = nil
-
-		-- Remove and reject queue items for the player
-		for i = #Queue.Items, 1, -1 do
-			local objectInQueue = Queue.Items[i]
-			if objectInQueue.player ~= player then
-				continue
+		connection:Disconnect()
+		-- Flush coalesced economy events before discarding state; otherwise the
+		-- last <=ECONOMY_FLUSH_INTERVAL seconds of activity is silently lost.
+		flushPlayerEconomy(player)
+		-- Compact the queue in place, skipping this player's events. O(size) but
+		-- player-leave is cold path; keeps enqueue/dequeue O(1) everywhere else.
+		local write = queueHead
+		for read = queueHead, queueTail - 1 do
+			local item = queue[read]
+			if item.player ~= player then
+				if write ~= read then
+					queue[write] = item
+				end
+				write += 1
 			end
-
-			table.remove(Queue.Items, i)
-			pcall(function()
-				objectInQueue.actions.reject("Player left before an event could be processed")
-			end)
 		end
+		for i = write, queueTail - 1 do
+			queue[i] = nil
+		end
+		queueTail = write
+		if queueHead == queueTail then
+			queueHead = 1
+			queueTail = 1
+		end
+		maxFunnelStep[player] = nil
+		maxOnboardingStep[player] = nil
 	end)
+end
+
+for _, player in Players:GetPlayers() do
+	onPlayerAdded(player)
+end
+Players.PlayerAdded:Connect(onPlayerAdded)
+
+local SHUTDOWN_FLUSH_GRACE = 2
+
+game:BindToClose(function()
+	-- Best-effort final flush: coalesced economy events first (most at-risk),
+	-- then anything still waiting on tokens in the queue.
+	for player in pendingEconomy do
+		flushPlayerEconomy(player)
+	end
+	for i = queueHead, queueTail - 1 do
+		fire(queue[i])
+	end
+	table.clear(queue)
+	queueHead = 1
+	queueTail = 1
+	-- AnalyticsService batches events internally; yielding here keeps the server
+	-- alive long enough for those batches to actually post before shutdown.
+	-- Roblox grants BindToClose up to 30s; 2s is a conservative trade between
+	-- shutdown latency and data integrity.
+	task.wait(SHUTDOWN_FLUSH_GRACE)
 end)
 
 return module
